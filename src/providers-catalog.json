@@ -1,0 +1,580 @@
+{
+  "nous": {
+    "label": "Nous Portal",
+    "models": [
+      "anthropic/claude-fable-5.1",
+      "anthropic/claude-fable-5",
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-opus-4.8",
+      "anthropic/claude-sonnet-5",
+      "anthropic/claude-haiku-4.5",
+      "openai/gpt-5.5",
+      "openai/gpt-5.5-pro",
+      "openai/gpt-5.4-mini",
+      "google/gemini-3-pro-preview",
+      "google/gemini-3.1-pro-preview",
+      "google/gemini-3.5-flash",
+      "x-ai/grok-4.3",
+      "deepseek/deepseek-v4-pro",
+      "deepseek/deepseek-v4-flash",
+      "qwen/qwen3.7-max",
+      "qwen/qwen3.7-plus",
+      "qwen/qwen3.6-35b-a3b",
+      "moonshotai/kimi-k2.6",
+      "moonshotai/kimi-k2.7-code",
+      "minimax/minimax-m3",
+      "z-ai/glm-5.2",
+      "z-ai/glm-5.1",
+      "xiaomi/mimo-v2.5-pro",
+      "tencent/hy3-preview",
+      "stepfun/step-3.7-flash",
+      "nvidia/nemotron-3-super-120b-a12b",
+      "sakana/fugu-ultra"
+    ],
+    "env": "NOUS_API_KEY",
+    "oauth": true
+  },
+  "openai": {
+    "label": "openai",
+    "models": [
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5-mini",
+      "gpt-5.3-codex",
+      "gpt-5.2-codex",
+      "gpt-4.1",
+      "gpt-4o",
+      "gpt-4o-mini"
+    ],
+    "env": "OPENAI_API_KEY",
+    "oauth": false
+  },
+  "openai-api": {
+    "label": "OpenAI API",
+    "models": [
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5-mini",
+      "gpt-5.3-codex",
+      "gpt-4.1",
+      "gpt-4o",
+      "gpt-4o-mini"
+    ],
+    "env": "OPENAI_API_KEY",
+    "oauth": false
+  },
+  "openai-codex": {
+    "label": "OpenAI Codex",
+    "models": [
+      "gpt-5.5",
+      "gpt-5.4-mini",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark"
+    ],
+    "env": null,
+    "oauth": true
+  },
+  "xai-oauth": {
+    "label": "xAI Grok OAuth (SuperGrok / Premium+)",
+    "models": [
+      "grok-build-0.1",
+      "grok-composer-2.5-fast",
+      "grok-4.20-0309-non-reasoning",
+      "grok-4.20-0309-reasoning",
+      "grok-4.20-multi-agent-0309",
+      "grok-4.3",
+      "grok-imagine-image",
+      "grok-imagine-image-quality",
+      "grok-imagine-video"
+    ],
+    "env": null,
+    "oauth": true
+  },
+  "copilot-acp": {
+    "label": "GitHub Copilot ACP",
+    "models": [
+      "copilot-acp"
+    ],
+    "env": null,
+    "oauth": false
+  },
+  "copilot": {
+    "label": "GitHub Copilot",
+    "models": [
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5-mini",
+      "gpt-5.3-codex",
+      "gpt-5.2-codex",
+      "gpt-4.1",
+      "gpt-4o",
+      "gpt-4o-mini",
+      "claude-sonnet-4.6",
+      "claude-sonnet-4",
+      "claude-sonnet-4.5",
+      "claude-haiku-4.5",
+      "gemini-3.1-pro-preview",
+      "gemini-3-pro-preview",
+      "gemini-3-flash-preview",
+      "gemini-2.5-pro"
+    ],
+    "env": "COPILOT_GITHUB_TOKEN",
+    "oauth": false
+  },
+  "gemini": {
+    "label": "Google AI Studio",
+    "models": [
+      "gemini-3.1-pro-preview",
+      "gemini-3-pro-preview",
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite-preview"
+    ],
+    "env": "GEMINI_API_KEY",
+    "oauth": false
+  },
+  "zai": {
+    "label": "Z.AI / GLM",
+    "models": [
+      "glm-5.2",
+      "glm-5.1",
+      "glm-5",
+      "glm-5v-turbo",
+      "glm-5-turbo",
+      "glm-4.7",
+      "glm-4.5",
+      "glm-4.5-flash"
+    ],
+    "env": "GLM_API_KEY",
+    "oauth": false
+  },
+  "xai": {
+    "label": "xAI",
+    "models": [
+      "grok-build-0.1",
+      "grok-composer-2.5-fast",
+      "grok-4.20-0309-non-reasoning",
+      "grok-4.20-0309-reasoning",
+      "grok-4.20-multi-agent-0309",
+      "grok-4.3",
+      "grok-imagine-image",
+      "grok-imagine-image-quality",
+      "grok-imagine-video"
+    ],
+    "env": "XAI_API_KEY",
+    "oauth": false
+  },
+  "nvidia": {
+    "label": "NVIDIA NIM",
+    "models": [
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "nvidia/nemotron-3-super-120b-a12b",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "z-ai/glm-5.2",
+      "moonshotai/kimi-k2.6",
+      "minimaxai/minimax-m3"
+    ],
+    "env": "NVIDIA_API_KEY",
+    "oauth": false
+  },
+  "kimi-coding": {
+    "label": "Kimi / Kimi Coding Plan",
+    "models": [
+      "kimi-k2.7-code",
+      "kimi-k2.6",
+      "kimi-k2.5",
+      "kimi-for-coding",
+      "kimi-k2-thinking",
+      "kimi-k2-thinking-turbo",
+      "kimi-k2-turbo-preview",
+      "kimi-k2-0905-preview"
+    ],
+    "env": "KIMI_API_KEY",
+    "oauth": false
+  },
+  "kimi-coding-cn": {
+    "label": "Kimi / Moonshot (China)",
+    "models": [
+      "kimi-k2.6",
+      "kimi-k2.5",
+      "kimi-k2-thinking",
+      "kimi-k2-turbo-preview",
+      "kimi-k2-0905-preview"
+    ],
+    "env": "KIMI_API_KEY",
+    "oauth": false
+  },
+  "stepfun": {
+    "label": "StepFun Step Plan",
+    "models": [
+      "step-3.5-flash",
+      "step-3.5-flash-2603"
+    ],
+    "env": "STEPFUN_API_KEY",
+    "oauth": false
+  },
+  "moonshot": {
+    "label": "moonshot",
+    "models": [
+      "kimi-k2.6",
+      "kimi-k2.5",
+      "kimi-k2-thinking",
+      "kimi-k2-turbo-preview",
+      "kimi-k2-0905-preview"
+    ],
+    "env": "KIMI_API_KEY",
+    "oauth": false
+  },
+  "minimax": {
+    "label": "MiniMax",
+    "models": [
+      "MiniMax-M3",
+      "MiniMax-M2.7",
+      "MiniMax-M2.5",
+      "MiniMax-M2.1",
+      "MiniMax-M2"
+    ],
+    "env": "MINIMAX_API_KEY",
+    "oauth": false
+  },
+  "minimax-oauth": {
+    "label": "MiniMax (OAuth)",
+    "models": [
+      "MiniMax-M3",
+      "MiniMax-M2.7",
+      "MiniMax-M2.7-highspeed"
+    ],
+    "env": null,
+    "oauth": true
+  },
+  "minimax-cn": {
+    "label": "MiniMax (China)",
+    "models": [
+      "MiniMax-M3",
+      "MiniMax-M2.7",
+      "MiniMax-M2.5",
+      "MiniMax-M2.1",
+      "MiniMax-M2"
+    ],
+    "env": "MINIMAX_CN_API_KEY",
+    "oauth": false
+  },
+  "anthropic": {
+    "label": "Anthropic",
+    "models": [
+      "claude-fable-5-1",
+      "claude-fable-5",
+      "claude-opus-5-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "claude-opus-4-5-20251101",
+      "claude-sonnet-4-5-20250929",
+      "claude-opus-4-20250514",
+      "claude-sonnet-4-20250514",
+      "claude-haiku-4-5-20251001"
+    ],
+    "env": "ANTHROPIC_API_KEY",
+    "oauth": true
+  },
+  "deepseek": {
+    "label": "DeepSeek",
+    "models": [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "deepseek-chat",
+      "deepseek-reasoner"
+    ],
+    "env": "DEEPSEEK_API_KEY",
+    "oauth": false
+  },
+  "xiaomi": {
+    "label": "Xiaomi MiMo",
+    "models": [
+      "mimo-v2.5-pro",
+      "mimo-v2.5",
+      "mimo-v2-pro",
+      "mimo-v2-omni",
+      "mimo-v2-flash"
+    ],
+    "env": "XIAOMI_API_KEY",
+    "oauth": false
+  },
+  "tencent-tokenhub": {
+    "label": "Tencent TokenHub",
+    "models": [
+      "hy3-preview"
+    ],
+    "env": "TENCENT_API_KEY",
+    "oauth": false
+  },
+  "arcee": {
+    "label": "Arcee AI",
+    "models": [
+      "trinity-large-thinking",
+      "trinity-large-preview",
+      "trinity-mini"
+    ],
+    "env": "ARCEE_API_KEY",
+    "oauth": false
+  },
+  "gmi": {
+    "label": "GMI Cloud",
+    "models": [
+      "zai-org/GLM-5.1-FP8",
+      "deepseek-ai/DeepSeek-V3.2",
+      "moonshotai/Kimi-K2.5",
+      "google/gemini-3.1-flash-lite-preview",
+      "anthropic/claude-sonnet-4.6",
+      "openai/gpt-5.4"
+    ],
+    "env": "GMI_API_KEY",
+    "oauth": false
+  },
+  "opencode-zen": {
+    "label": "OpenCode Zen",
+    "models": [
+      "kimi-k2.5",
+      "kimi-k2.6",
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4-pro",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark",
+      "gpt-5.2",
+      "gpt-5.2-codex",
+      "gpt-5.1",
+      "gpt-5.1-codex",
+      "gpt-5.1-codex-max",
+      "gpt-5.1-codex-mini",
+      "gpt-5",
+      "gpt-5-codex",
+      "gpt-5-nano",
+      "claude-fable-5-1",
+      "claude-fable-5",
+      "claude-opus-5-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-opus-4-5",
+      "claude-opus-4-1",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
+      "claude-sonnet-4",
+      "claude-haiku-4-5",
+      "gemini-3.5-flash",
+      "gemini-3.1-pro",
+      "gemini-3-flash",
+      "minimax-m3",
+      "minimax-m2.7",
+      "minimax-m2.5",
+      "minimax-m3-free",
+      "glm-5.2",
+      "glm-5.1",
+      "glm-5",
+      "kimi-k2.7-code",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "deepseek-v4-flash-free",
+      "qwen3.7-plus",
+      "qwen3.6-plus",
+      "qwen3.6-plus-free",
+      "qwen3.5-plus",
+      "grok-build-0.1",
+      "big-pickle",
+      "mimo-v2.5-free",
+      "north-mini-code-free",
+      "nemotron-3-ultra-free"
+    ],
+    "env": "OPENCODE_ZEN_API_KEY",
+    "oauth": false
+  },
+  "opencode-go": {
+    "label": "OpenCode Go",
+    "models": [
+      "kimi-k2.7-code",
+      "kimi-k2.6",
+      "kimi-k2.5",
+      "glm-5.2",
+      "glm-5.1",
+      "glm-5",
+      "mimo-v2.5-pro",
+      "mimo-v2.5",
+      "mimo-v2-pro",
+      "mimo-v2-omni",
+      "minimax-m3",
+      "minimax-m2.7",
+      "minimax-m2.5",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "qwen3.7-max",
+      "qwen3.7-plus",
+      "qwen3.6-plus",
+      "qwen3.5-plus"
+    ],
+    "env": "OPENCODE_GO_API_KEY",
+    "oauth": false
+  },
+  "kilocode": {
+    "label": "Kilo Code",
+    "models": [
+      "anthropic/claude-opus-4.6",
+      "anthropic/claude-sonnet-4.6",
+      "openai/gpt-5.4",
+      "google/gemini-3-pro-preview",
+      "google/gemini-3-flash-preview"
+    ],
+    "env": "KILOCODE_API_KEY",
+    "oauth": false
+  },
+  "alibaba": {
+    "label": "Qwen Cloud",
+    "models": [
+      "qwen3.7-max",
+      "qwen3.6-plus",
+      "kimi-k2.5",
+      "qwen3.5-plus",
+      "qwen3-coder-plus",
+      "qwen3-coder-next",
+      "glm-5",
+      "glm-4.7",
+      "MiniMax-M2.5"
+    ],
+    "env": "DASHSCOPE_API_KEY",
+    "oauth": false
+  },
+  "alibaba-coding-plan": {
+    "label": "Alibaba Cloud (Coding Plan)",
+    "models": [
+      "qwen3.7-max",
+      "qwen3.6-plus",
+      "qwen3.5-plus",
+      "qwen3-coder-plus",
+      "qwen3-coder-next",
+      "kimi-k2.5",
+      "glm-5",
+      "glm-4.7",
+      "MiniMax-M2.5"
+    ],
+    "env": "DASHSCOPE_API_KEY",
+    "oauth": false
+  },
+  "huggingface": {
+    "label": "Hugging Face",
+    "models": [
+      "moonshotai/Kimi-K2.5",
+      "Qwen/Qwen3.5-397B-A17B",
+      "Qwen/Qwen3.5-35B-A3B",
+      "deepseek-ai/DeepSeek-V3.2",
+      "MiniMaxAI/MiniMax-M2.5",
+      "zai-org/GLM-5",
+      "XiaomiMiMo/MiMo-V2-Flash",
+      "moonshotai/Kimi-K2-Thinking",
+      "moonshotai/Kimi-K2.6"
+    ],
+    "env": "HF_TOKEN",
+    "oauth": false
+  },
+  "bedrock": {
+    "label": "AWS Bedrock",
+    "models": [
+      "us.anthropic.claude-sonnet-4-6",
+      "us.anthropic.claude-opus-4-6-v1",
+      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "us.amazon.nova-pro-v1:0",
+      "us.amazon.nova-lite-v1:0",
+      "us.amazon.nova-micro-v1:0",
+      "deepseek.v3.2",
+      "us.meta.llama4-maverick-17b-instruct-v1:0",
+      "us.meta.llama4-scout-17b-instruct-v1:0"
+    ],
+    "env": "AWS_ACCESS_KEY_ID",
+    "oauth": false
+  },
+  "azure-foundry": {
+    "label": "Azure Foundry",
+    "models": [],
+    "env": "AZURE_API_KEY",
+    "oauth": false
+  },
+  "novita": {
+    "label": "NovitaAI",
+    "models": [
+      "moonshotai/kimi-k2.5",
+      "minimax/minimax-m2.7",
+      "zai-org/glm-5",
+      "deepseek/deepseek-v3-0324",
+      "deepseek/deepseek-r1-0528",
+      "qwen/qwen3-235b-a22b-fp8"
+    ],
+    "env": "NOVITA_API_KEY",
+    "oauth": false
+  },
+  "openrouter": {
+    "label": "OpenRouter",
+    "models": [
+      "anthropic/claude-fable-5.1",
+      "anthropic/claude-fable-5",
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-opus-4.8",
+      "anthropic/claude-sonnet-5",
+      "anthropic/claude-haiku-4.5",
+      "openai/gpt-5.5",
+      "openai/gpt-5.5-pro",
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "google/gemini-3-pro-preview",
+      "google/gemini-3.1-pro-preview",
+      "google/gemini-3.5-flash",
+      "x-ai/grok-4.3",
+      "x-ai/grok-4.20",
+      "deepseek/deepseek-v4-pro",
+      "deepseek/deepseek-v4-flash",
+      "meta-llama/llama-4-405b",
+      "qwen/qwen3.7-max",
+      "moonshotai/kimi-k2.6",
+      "z-ai/glm-5.2"
+    ],
+    "env": "OPENROUTER_API_KEY",
+    "oauth": false
+  },
+  "qwen-oauth": {
+    "label": "Qwen OAuth",
+    "models": [
+      "qwen3-coder-plus",
+      "qwen3-coder-next",
+      "qwen3.7-max",
+      "qwen3.6-plus",
+      "qwen3.5-plus"
+    ],
+    "env": null,
+    "oauth": true
+  },
+  "groq": {
+    "label": "Groq",
+    "models": [
+      "llama-4-405b",
+      "llama-4-70b",
+      "llama-3.3-70b",
+      "mixtral-9x22b"
+    ],
+    "env": "GROQ_API_KEY",
+    "oauth": false
+  },
+  "moa": {
+    "label": "Mixture of Agents",
+    "models": [
+      "default"
+    ],
+    "env": null,
+    "oauth": false
+  }
+}

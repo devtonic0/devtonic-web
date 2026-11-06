@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Devtonic</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <style>
+      /* Splash: visible until React mounts and replaces #root. */
+      #devtonic-splash {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        background: #0b0e14; color: #d5d8e0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        z-index: 999;
+      }
+      #devtonic-splash .brand {
+        font-size: 32px; letter-spacing: 0.35em; font-weight: 700;
+        color: #7dd3fc; margin-bottom: 22px;
+      }
+      #devtonic-splash .ring {
+        width: 42px; height: 42px; border-radius: 50%;
+        border: 3px solid rgba(125,211,252,0.15);
+        border-top-color: #7dd3fc;
+        animation: dt-spin 0.9s linear infinite;
+      }
+      #devtonic-splash .msg {
+        margin-top: 16px; font-size: 12px; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.2em;
+      }
+      @keyframes dt-spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="devtonic-splash">
+      <div class="brand">DEVTONIC</div>
+      <div class="ring"></div>
+      <div class="msg">loading mission control…</div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="./src/main.jsx"></script>
+    <script>
+      // React mounts into #root; hide splash once anything is rendered inside.
+      const obs = new MutationObserver(() => {
+        const root = document.getElementById("root");
+        if (root && root.childElementCount > 0) {
+          const s = document.getElementById("devtonic-splash");
+          if (s) {
+            s.style.transition = "opacity 220ms";
+            s.style.opacity = "0";
+            setTimeout(() => s.remove(), 240);
+          }
+          obs.disconnect();
+        }
+      });
+      obs.observe(document.getElementById("root"), { childList: true });
+      // Safety timeout: give up on splash after 12s so a hung load doesn't lock it.
+      setTimeout(() => document.getElementById("devtonic-splash")?.remove(), 12000);
+    </script>
+  </body>
+</html>
