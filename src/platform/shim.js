@@ -5,6 +5,8 @@
 // Sync fs calls use synchronous XHR to 127.0.0.1. That is deliberate for v0
 // (zero panel rewrites) — see ROADMAP.md "async fs migration".
 import pathMod from "path-browserify";
+import { openPicker } from "./picker.js";
+import { extensionsFrom } from "./picker-model.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -120,8 +122,12 @@ if (!window.require) {
   const electron = {
     ipcRenderer: {
       invoke: async (ch, ...a) => {
-        if (ch === "pick-folder") return prompt("Project folder (absolute path):", ENV.homedir) || null;
-        if (ch === "pick-file") return prompt("File path:", ENV.homedir) || null;
+        if (ch === "pick-folder" || ch === "pick-file") {
+          const listDir = dir => fs.readdirSync(dir, { withFileTypes: true })
+            .map(d => ({ name: d.name, isDir: d.isDirectory(), isFile: d.isFile() }));
+          return openPicker({ mode: ch === "pick-folder" ? "folder" : "file", home: ENV.homedir,
+            extensions: extensionsFrom(a[0]), listDir });
+        }
         if (ch === "open-external") return window.open(a[0], "_blank");
         if (ch === "app-restart") return location.reload();
         return null;

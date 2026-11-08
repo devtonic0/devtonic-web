@@ -459,6 +459,29 @@ webview { flex: 1; background: white; }
 .modal input:focus { border-color: var(--accent); }
 .modal-hint { font-size: 10px; color: var(--dim); margin-top: 8px; }
 
+/* in-app file/folder picker (src/platform/picker.js) */
+.modal.picker { width: min(560px, 92vw); display: flex; flex-direction: column; gap: 8px; }
+.picker-crumbs { display: flex; flex-wrap: wrap; gap: 2px; font-family: var(--mono); font-size: 11px; }
+.picker-crumb { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.picker-crumb:hover { color: var(--text); background: var(--bg2); }
+.picker-crumb.cur { color: var(--accent); }
+.modal input.picker-path { font-family: var(--mono); font-size: 12px; }
+.picker-list { height: 320px; overflow: auto; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg2); outline: none; }
+.picker-row { padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-row:hover { background: var(--panel); }
+.picker-row.sel { background: var(--accent); color: #fff; }
+.picker-row.file { color: var(--dim); }
+.picker-row.file.sel { color: #fff; }
+.picker-empty { padding: 12px; font-size: 11px; color: var(--dim); }
+.picker-err { font-size: 11px; color: var(--red); }
+.picker-err:empty { display: none; }
+.picker-foot { display: flex; align-items: center; gap: 8px; }
+.picker-hidden { font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+.modal .picker-hidden input { width: auto; }
+.picker-foot button { border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+.picker-foot .picker-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
+.picker-foot .picker-ok:disabled { opacity: .5; cursor: default; }
+
 /* env-var prompt modal */
 .modal.env-modal { min-width: 480px; max-width: 620px; }
 .env-modal-sub {

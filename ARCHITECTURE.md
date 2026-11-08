@@ -9,6 +9,7 @@
 | Store / bus | `src/store.js` | `projectRoot`, `devtonic.config.json` IO + watcher, settings, tiny pub/sub `bus` |
 | Model routing | `src/routing.js`, `src/llm.js` | `⚡ auto` router: picks model tier per prompt; reads `~/.hermes/config.yaml` |
 | Platform shim | `src/platform/shim.js` | Browser stand-ins for `fs`, `os`, `path`, `child_process`, `electron` |
+| File/folder picker | `src/platform/picker.js`, `picker-model.js` | In-app directory browser behind `ipcRenderer.invoke("pick-folder" \| "pick-file")`; lists via the bridge's `readdirSync`. Pure path/filter logic lives in `picker-model.js` and is unit-tested |
 | Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn) |
 
 ## Project contract: `devtonic.config.json`
@@ -33,5 +34,4 @@ All endpoints require the `x-devtonic-token` header or a `?token=` query param.
 ## Known v0 compromises
 
 - Sync `fs` calls use synchronous XHR so that panels didn't need rewriting. Migrating to async is on the roadmap.
-- The folder/file pickers are `prompt()` dialogs.
 - The Browser panel is an `<iframe>`, so sites that send `X-Frame-Options` won't render.
