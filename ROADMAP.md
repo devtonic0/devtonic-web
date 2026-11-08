@@ -3,7 +3,7 @@
 Items are worked top-down by the autonomous improvement loop. When an item lands, its PR checks it off here and links to it.
 
 ## Phase 1: Solid browser port
-- [x] Replace `prompt()` folder picker with an in-app directory browser (via `/api/fs readdirSync`)
+- [x] Replace `prompt()` folder picker with an in-app directory browser (via `/api/fs readdirSync`) ([#2](https://github.com/devtonic0/devtonic-web/pull/2))
 - [ ] Remove dead Electron-only code paths (desktop notifications for workers → Web Notifications API; `.desktop` launcher refs)
 - [ ] Make process listing panels (Tasks, Processes, Servers) cross-platform: they currently assume Linux `ps --sort` / `ss`
 - [ ] Remove hard-coded `~/.local/bin/hermes`; resolve via `which hermes` / `DEVTONIC_HERMES` env
