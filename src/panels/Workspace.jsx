@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { projectRoot } from "../store.js";
+import { pickFolder, pickFile } from "../platform/web.js";
 
 // Workspace image: export the full Hermes identity + app state as a portable
 // .devtonic.tar.gz — memory, skills, config, sessions, plugins list, app
 // settings, project mission files — and import one on a fresh machine.
 const { execFile } = window.require("child_process");
-const { ipcRenderer } = window.require("electron");
 const fs = window.require("fs");
 const path = window.require("path");
 const os = window.require("os");
@@ -33,7 +33,7 @@ export default function Workspace() {
   const toggle = k => setSelected(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   async function exportImage() {
-    const dir = await ipcRenderer.invoke("pick-folder");
+    const dir = await pickFolder({ title: "Export workspace image to…" });
     if (!dir) return;
     setBusy(true);
     const stamp = new Date().toISOString().slice(0, 10);
@@ -52,7 +52,7 @@ export default function Workspace() {
   }
 
   async function importImage() {
-    const file = await ipcRenderer.invoke("pick-file", [{ name: "Devtonic workspace", extensions: ["gz", "tgz"] }]);
+    const file = await pickFile([{ name: "Devtonic workspace", extensions: ["gz", "tgz"] }], { title: "Import workspace image" });
     if (!file) return;
     setBusy(true);
     // safety snapshot of the current ~/.hermes before overwrite

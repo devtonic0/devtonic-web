@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { projectRoot, bus, loadMission } from "../store.js";
+import { copyText, reloadApp } from "../platform/web.js";
 
 // Secrets: env files grouped into sections (frontend/backend/etc).
 // Auto-scans the project recursively for any .env* file (bounded — ignores
@@ -7,7 +8,6 @@ import { projectRoot, bus, loadMission } from "../store.js";
 const fs = window.require("fs");
 const path = window.require("path");
 const os = window.require("os");
-const { clipboard, ipcRenderer } = window.require("electron");
 
 // Directories we never descend into (huge, no user env files worth reading).
 const IGNORE_DIRS = new Set([
@@ -159,7 +159,7 @@ export default function Secrets() {
   useEffect(() => { load(); }, [active, load]);
 
   function copy(v, key) {
-    clipboard.writeText(v);
+    copyText(v);
     setCopied(key);
     setTimeout(() => setCopied(""), 1200);
   }
@@ -218,8 +218,8 @@ export default function Secrets() {
           border: "1px solid var(--accent)", borderRadius: 6,
           display: "flex", alignItems: "center", gap: 8,
         }}>
-          <span style={{ flex: 1 }}>Secrets changed. Restart Devtonic so new values are picked up everywhere.</span>
-          <button className="send-btn" onClick={() => ipcRenderer.invoke("app-restart")}>↻ restart</button>
+          <span style={{ flex: 1 }}>Secrets changed. Reload Devtonic so new values are picked up everywhere.</span>
+          <button className="send-btn" onClick={reloadApp}>↻ reload</button>
           <button className="tb-btn" onClick={() => setDirty(false)}>dismiss</button>
         </div>
       )}

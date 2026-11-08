@@ -29,7 +29,7 @@ import { bus } from "./store.js";
 import { projectRoot, setProject, recentProjects, loadSettings, saveSettings } from "./store.js";
 import logoUrl from "../assets/logo-small.png";
 
-const { ipcRenderer } = window.require("electron");
+import { pickFolder, reloadApp, setUiScale, notify } from "./platform/web.js";
 
 const TABS = {
   chat: { id: "chat", title: "⚡ Hermes", content: <Chat />, closable: true },
@@ -88,8 +88,8 @@ function RestartBanner() {
       borderBottom: "1px solid var(--accent)", color: "var(--text)", fontSize: 12,
     }}>
       <span style={{ color: "var(--accent)" }}>↻</span>
-      <span style={{ flex: 1 }}>{reason} — restart Devtonic to apply everywhere.</span>
-      <button className="send-btn" onClick={() => window.require("electron").ipcRenderer.invoke("app-restart")}>Restart now</button>
+      <span style={{ flex: 1 }}>{reason} — reload Devtonic to apply everywhere.</span>
+      <button className="send-btn" onClick={reloadApp}>Reload now</button>
       <button className="tb-btn" onClick={() => setReason("")}>Later</button>
     </div>
   );
@@ -99,12 +99,9 @@ export default function App() {
   const dockRef = useRef(null);
   useEffect(() => {
     const z = loadSettings().uiScale;
-    if (z && z !== 100) window.require("electron").webFrame.setZoomFactor(z / 100);
-    // Ask for OS notification permission once at startup so urgent-email
-    // notifications can fire without the user having to trigger the request.
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      try { Notification.requestPermission(); } catch {}
-    }
+    if (z && z !== 100) setUiScale(z);
+    // Notification permission is requested from Settings → notifications,
+    // because browsers only allow the prompt from a user gesture.
   }, []);
 
   // Global background-worker completion poller. Detached fix-workers (dispatched
@@ -147,14 +144,13 @@ export default function App() {
               .join("\n");
             const text = `${ok ? "✅" : "⚠️"} **${rep.fix_id}** worker finished (rc=${rep.rc}, ${rep.duration_s}s)\n\n${rep.summary || ""}\n\n**git state:**\n${git}`;
             bus.emit("worker-report", { id, text, ok });
-            try {
-              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-                const n = new Notification(`${ok ? "✅" : "⚠️"} ${rep.fix_id} worker done`, {
-                  body: (rep.summary || "").slice(0, 140),
-                });
-                n.onclick = () => bus.emit("open-tab", { id: "workers" });
-              }
-            } catch {}
+            if (loadSettings().workerNotifications !== false) {
+              notify(`${ok ? "✅" : "⚠️"} ${rep.fix_id} worker done`, {
+                body: rep.summary || "",
+                tag: `worker-${id}`,
+                onClick: () => bus.emit("open-tab", { id: "workers" }),
+              });
+            }
           }
         }
       }
@@ -204,7 +200,7 @@ export default function App() {
   // New project: create folder + git init + starter mission.json, then focus
   // the chat — Hermes sets everything else up from the docs you paste.
   async function newProject() {
-    const base = await ipcRenderer.invoke("pick-folder");
+    const base = await pickFolder({ title: "Create the new project inside…" });
     if (!base) return;
     setAsk({
       title: "Project name",
@@ -231,7 +227,7 @@ export default function App() {
   }, [theme]);
 
   async function pickProject() {
-    const folder = await ipcRenderer.invoke("pick-folder");
+    const folder = await pickFolder({ title: "Open project" });
     if (folder) openProject(folder);
   }
 
@@ -295,12 +291,8 @@ export default function App() {
         </div>
         <button
           className="tb-btn theme-toggle"
-          title="Restart Devtonic (fully re-init the app)"
-          onClick={() => {
-            if (confirm("Restart Devtonic now?")) {
-              window.require("electron").ipcRenderer.invoke("app-restart");
-            }
-          }}
+          title="Reload Devtonic (fully re-init the UI)"
+          onClick={() => { if (confirm("Reload Devtonic now?")) reloadApp(); }}
         >↻</button>
         <button
           className="tb-btn theme-toggle"

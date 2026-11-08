@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { copyText, openExternal } from "../platform/web.js";
 
 // Servers panel — the Hermes background-process registry, curated for
 // dev servers (things like `pnpm dev`, `vite`, `next dev`, `uvicorn`, ...).
@@ -136,8 +137,7 @@ export default function Servers() {
   }
 
   function copyCmd(row) {
-    const { clipboard } = window.require("electron");
-    clipboard.writeText(fmtCmd(row.command));
+    copyText(fmtCmd(row.command));
     setMsg("command copied");
     setTimeout(() => setMsg(""), 1200);
   }
@@ -204,7 +204,7 @@ export default function Servers() {
                   <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     {r._ports.map(p => (
                       <a key={p} className="tb-btn" style={{ padding: "2px 8px", color: "var(--accent)" }}
-                         href="#" onClick={e => { e.preventDefault(); window.require("electron").shell.openExternal(`http://localhost:${p}`); }}
+                         href="#" onClick={e => { e.preventDefault(); openExternal(`http://localhost:${p}`); }}
                          title={`open http://localhost:${p}`}>:{p}</a>
                     ))}
                   </span>
