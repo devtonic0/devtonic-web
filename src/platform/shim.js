@@ -5,8 +5,7 @@
 // Sync fs calls use synchronous XHR to 127.0.0.1. That is deliberate for v0
 // (zero panel rewrites) — see ROADMAP.md "async fs migration".
 import pathMod from "path-browserify";
-import { openPicker } from "./picker.js";
-import { extensionsFrom } from "./picker-model.js";
+import * as web from "./web.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -118,25 +117,24 @@ if (!window.require) {
   const exec = (cmd, opts, cb) => execFile("bash", ["-lc", cmd], opts, cb);
   const child_process = { spawn, execFile, exec };
 
-  // ---- electron stand-ins ----
+  // ---- electron compatibility stand-ins ----
+  // Built-in panels import src/platform/web.js directly. This object is kept
+  // only so third-party or legacy panels that still call
+  // window.require("electron") don't crash. Prefer web.js in new code.
   const electron = {
     ipcRenderer: {
       invoke: async (ch, ...a) => {
-        if (ch === "pick-folder" || ch === "pick-file") {
-          const listDir = dir => fs.readdirSync(dir, { withFileTypes: true })
-            .map(d => ({ name: d.name, isDir: d.isDirectory(), isFile: d.isFile() }));
-          return openPicker({ mode: ch === "pick-folder" ? "folder" : "file", home: ENV.homedir,
-            extensions: extensionsFrom(a[0]), listDir });
-        }
-        if (ch === "open-external") return window.open(a[0], "_blank");
-        if (ch === "app-restart") return location.reload();
+        if (ch === "pick-folder") return web.pickFolder();
+        if (ch === "pick-file") return web.pickFile(a[0]);
+        if (ch === "open-external") return web.openExternal(a[0]);
+        if (ch === "app-restart") return web.reloadApp();
         return null;
       },
       on: () => {}, send: () => {},
     },
-    clipboard: { writeText: t => navigator.clipboard?.writeText(t), readText: () => "" },
-    shell: { openExternal: u => window.open(u, "_blank") },
-    webFrame: { setZoomFactor: f => { document.documentElement.style.zoom = String(f); } },
+    clipboard: { writeText: t => { web.copyText(t); }, readText: () => "" },
+    shell: { openExternal: u => web.openExternal(u) },
+    webFrame: { setZoomFactor: f => { web.setUiScale(f * 100); } },
   };
 
   const MODS = { fs, path: pathMod, os, child_process, electron };

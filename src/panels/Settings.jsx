@@ -1,20 +1,25 @@
 import React, { useState } from "react";
 import { loadSettings, saveSettings } from "../store.js";
+import { setUiScale, notificationState, requestNotifications, notify } from "../platform/web.js";
 
-// App settings: UI scale (true zoom), theme, behavior toggles, resets.
-const { webFrame } = window.require("electron");
+// App settings: UI scale (true zoom), theme, behavior toggles, notifications, resets.
 
 export default function Settings() {
   const s0 = loadSettings();
   const [scale, setScale] = useState(s0.uiScale ?? 100);
   const [diffPoll, setDiffPoll] = useState(s0.diffPollSec ?? 8);
   const [mapDepth, setMapDepth] = useState(s0.mapDepth ?? 6);
+  const [workerNotes, setWorkerNotes] = useState(s0.workerNotifications !== false);
+  const [notif, setNotif] = useState(notificationState);
   const [cleared, setCleared] = useState("");
 
   function applyScale(v) {
-    setScale(v);
-    webFrame.setZoomFactor(v / 100);
+    setScale(setUiScale(v));
     saveSettings({ uiScale: v });
+  }
+  async function enableNotifications() {
+    await requestNotifications();
+    setNotif(notificationState());
   }
   const save = (k, v, set) => { set(v); saveSettings({ [k]: v }); };
 
@@ -41,6 +46,21 @@ export default function Settings() {
           <span className="set-val">{mapDepth} levels</span>
         </div>
 
+        <div className="git-section">notifications</div>
+        <div className="set-row">
+          <span className="set-label">browser notifications</span>
+          <span className="set-val" data-testid="notif-status">{notif.label}</span>
+          {notif.canRequest && <button className="tb-btn" onClick={enableNotifications}>enable</button>}
+        </div>
+        <div className="set-row">
+          <span className="set-label">notify when a background worker finishes</span>
+          <input type="checkbox" checked={workerNotes} onChange={e => save("workerNotifications", e.target.checked, setWorkerNotes)} />
+        </div>
+        <div className="cfg-hint">
+          Notifications only appear while this tab is hidden or unfocused; otherwise the result shows in chat.
+          {notif.label === "enabled" && <> <a href="#" onClick={e => { e.preventDefault(); setTimeout(() => notify("Devtonic test notification", { body: "Switch away from this tab within 3 seconds to see it." }), 3000); }}>send a test</a> (fires in 3s)</>}
+        </div>
+
         <div className="git-section">resets</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="tb-btn" onClick={() => { saveSettings({ chatSessionsByProject: {}, chatActiveByProject: {} }); setCleared("session lists reset (history stays in Hermes)"); }}>reset session list</button>
@@ -52,8 +72,8 @@ export default function Settings() {
 
         <div className="git-section">about</div>
         <div className="cfg-hint">
-          Devtonic v1.0.0 — AI mission control, powered by Hermes.<br />
-          Config file: <code>~/.hermes-mission-control.json</code> · Per-project state: <code>&lt;project&gt;/.hermes/mission.json</code>
+          devtonic-web — AI mission control in your browser, powered by Hermes.<br />
+          Config file: <code>~/.hermes-mission-control.json</code> · Per-project state: <code>&lt;project&gt;/devtonic.config.json</code>
         </div>
       </div>
     </div>

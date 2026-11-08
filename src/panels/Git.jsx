@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { projectRoot, bus } from "../store.js";
+import { openExternal } from "../platform/web.js";
 
 // Git panel: status, branches, sync, commit, PR create/draft(AI)/merge.
 // Plumbing via git + gh CLIs; AI drafting via `hermes --cli`.
@@ -109,7 +110,7 @@ export default function Git() {
   // prompt, but if we run it non-interactive it prints "First copy your one-time
   // code: XXXX-XXXX\nPress Enter to open browser: " then hangs. We capture that
   // output, extract the code, show it + the URL in the UI, and let the user
-  // open the URL in their default browser via xdg-open.
+  // open the URL in a new browser tab.
   function browserLogin() {
     setBusyMsg("starting browser sign-in…");
     setOutput("");
@@ -136,8 +137,9 @@ export default function Git() {
         );
         // Copy code to clipboard for convenience.
         try { navigator.clipboard?.writeText(code).catch(() => {}); } catch {}
-        // Open URL in system default browser via xdg-open (not Electron shell).
-        openBrowserSystemDefault(url);
+        // Open the device-login page (new tab, or the OS opener if the
+        // popup is blocked because this isn't a user gesture).
+        openExternal(url);
         // Send Enter so gh proceeds to poll for the token exchange.
         try { p.stdin.write("\n"); p.stdin.end(); } catch {}
       }
@@ -157,20 +159,6 @@ export default function Git() {
       setBusyMsg("");
       setOutput(`⚠️ Couldn't launch gh: ${e.message}`);
     });
-  }
-
-  // Open URL via xdg-open / open / start — bypasses Electron's shell which
-  // sometimes hangs on Linux.
-  function openBrowserSystemDefault(url) {
-    const cmd = process.platform === "darwin" ? "open"
-             : process.platform === "win32" ? "start" : "xdg-open";
-    try {
-      const args = process.platform === "win32" ? ["", url] : [url];
-      spawn(cmd, args, { detached: true, stdio: "ignore", shell: process.platform === "win32", env: EXEC_ENV }).unref();
-    } catch {
-      // Last-ditch fallback: Electron shell.
-      try { window.require("electron").shell.openExternal(url); } catch {}
-    }
   }
 
   // Switch active gh account (only relevant when the user has 2+ signed in).
