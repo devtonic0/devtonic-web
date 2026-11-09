@@ -12,6 +12,7 @@
 | Web platform | `src/platform/web.js`, `web-model.js` | Browser-native replacements for the old Electron APIs: `openExternal` (new tab, falling back to the OS opener via the bridge), `copyText`, `reloadApp`, `setUiScale`, `pickFolder`/`pickFile`, and Web Notifications (`notify`, `requestNotifications`). Built-in panels import these directly. Pure logic (URL scheme allow-list, notify gating, scale clamping) is unit-tested |
 | File/folder picker | `src/platform/picker.js`, `picker-model.js` | In-app directory browser behind `pickFolder()` / `pickFile()` in `web.js`; lists via the bridge's `readdirSync`. Pure path/filter logic lives in `picker-model.js` and is unit-tested |
 | Process listing | `src/platform/procs.js`, `procs-model.js` | Cross-platform `listProcesses`, `processStat` and `listeningPorts` used by Tasks, Processes and Servers. It sticks to POSIX `ps -A/-U -o col=` flags and sorts in JS, because procps' `--sort` and `--no-headers` don't exist on macOS. Ports come from `ss -ltnp` on Linux and from `lsof -iTCP -sTCP:LISTEN -Fpn` on macOS (also the Linux fallback when `ss` is missing). Parsers are unit-tested, and one test runs the real `ps` |
+| Hermes binary | `server/hermes.mjs`, `src/platform/hermes.js` | The bridge resolves the agent CLI (`DEVTONIC_HERMES` → `PATH` like `which` → `~/.local/bin`, `~/.hermes/bin`, `/opt/homebrew/bin`, `/usr/local/bin`) and returns it as `hermes: {path, source, found}` in `/api/env`. Panels call `hermesPath()` at spawn time; Setup calls `refreshHermes()` after installing so new spawns pick up the binary. The resolver is unit-tested |
 | Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn) |
 
 ## Project contract: `devtonic.config.json`
@@ -21,12 +22,12 @@ Lives at the project root. Holds `phases`, `features`, `architecture`, `todos`, 
 ## Agent integration
 
 The Chat panel shells out per turn:
-`hermes --cli -z <msg> --continue <session>` and tails `~/.hermes/logs/agent.log` for the live activity feed.
+`<hermesPath()> --cli -z <msg> --continue <session>` and tails `~/.hermes/logs/agent.log` for the live activity feed.
 Planned: switch to a structured streaming API exposed by devtonic-agent (see ROADMAP).
 
 ## Bridge protocol
 
-- `GET /api/env` returns `{homedir, hostname, platform, env, cwd}`
+- `GET /api/env` returns `{homedir, hostname, platform, env, cwd, hermes: {path, source, found}}`
 - `POST /api/fs {fn, args}` returns `{ok, value}` or `{ok:false, error}`. This is an allow-listed set of `fs` functions.
 - `POST /api/exec {file, args, opts}` returns `{error, stdout, stderr}`
 - `WS /api/proc`: client sends `spawn | stdin | end | kill`; server sends `pid | out | err | error | close`

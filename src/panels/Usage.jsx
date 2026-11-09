@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { loadSettings, saveSettings } from "../store.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // API Usage: parses agent.log API-call lines (tokens in/out + model) into
 // per-day / per-model usage, estimates cost from a price table, and enforces
@@ -9,7 +10,6 @@ const path = window.require("path");
 const os = window.require("os");
 const { spawn } = window.require("child_process");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const LOG = path.join(os.homedir(), ".hermes", "logs", "agent.log");
 
 // $ per 1M tokens (input, output). Editable in the UI; persisted to settings.
@@ -109,7 +109,7 @@ export default function Usage() {
     setRateMsg("");
     const prompt = `Search the web for the current API pricing of the LLM model "${model}" in USD per 1 million tokens (input and output). Reply with ONLY this JSON on one line, nothing else: {"in": <input $/1M>, "out": <output $/1M>, "source": "<url>"}`;
     let out = "";
-    const p = spawn(HERMES, ["--cli", "-z", prompt], { env: { ...process.env } });
+    const p = spawn(hermesPath(), ["--cli", "-z", prompt], { env: { ...process.env } });
     p.stdout.on("data", d => (out += d.toString()));
     p.on("close", () => {
       setRateBusy("");

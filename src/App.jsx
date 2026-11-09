@@ -30,6 +30,7 @@ import { projectRoot, setProject, recentProjects, loadSettings, saveSettings } f
 import logoUrl from "../assets/logo-small.png";
 
 import { pickFolder, reloadApp, setUiScale, notify } from "./platform/web.js";
+import { hermesFound } from "./platform/hermes.js";
 
 const TABS = {
   chat: { id: "chat", title: "⚡ Hermes", content: <Chat />, closable: true },
@@ -167,12 +168,8 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [projMenu, setProjMenu] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(() => {
-    const fsn = window.require("fs");
-    const p = window.require("path");
-    const o = window.require("os");
     const done = loadSettings().setupDone;
-    const hasHermes = fsn.existsSync(p.join(o.homedir(), ".local", "bin", "hermes"));
-    return !done && !hasHermes;
+    return !done && !hermesFound();
   });
   const [ask, setAsk] = useState(null); // { title, value, cb }
   const [setupRoot, setSetupRoot] = useState(null); // trigger auto-setup modal

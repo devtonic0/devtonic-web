@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { spawn, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { resolveHermes } from "./hermes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "..", "dist");
@@ -45,7 +46,7 @@ const FS = {
 
 function envInfo() {
   return { homedir: os.homedir(), hostname: os.hostname(), platform: process.platform,
-    tmpdir: os.tmpdir(), env: process.env, cwd: process.cwd(), sep: path.sep };
+    tmpdir: os.tmpdir(), env: process.env, cwd: process.cwd(), sep: path.sep, hermes: resolveHermes() };
 }
 
 function readBody(req) {
@@ -133,6 +134,10 @@ wss.on("connection", ws => {
 server.listen(PORT, HOST, () => {
   const u = `http://${HOST}:${PORT}/?token=${TOKEN}`;
   console.log(`devtonic-web running → ${u}`);
+  const h = resolveHermes();
+  console.log(h.found ? `hermes: ${h.path} (${h.source})` : h.source === "env"
+    ? `hermes: DEVTONIC_HERMES=${h.path} is not an executable file`
+    : "hermes: not found on PATH; set DEVTONIC_HERMES or install it from the Setup screen");
   if (process.argv.includes("--open")) {
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
     spawn(cmd, [u], { detached: true, stdio: "ignore", shell: process.platform === "win32" }).unref();

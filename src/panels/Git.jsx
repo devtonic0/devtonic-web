@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { projectRoot, bus } from "../store.js";
 import { openExternal } from "../platform/web.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // Git panel: status, branches, sync, commit, PR create/draft(AI)/merge.
 // Plumbing via git + gh CLIs; AI drafting via `hermes --cli`.
@@ -9,7 +10,6 @@ const os = window.require("os");
 const path = window.require("path");
 const fs = window.require("fs");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 // Detect gh binary — packaged Electron loses PATH mods from ~/.bashrc, so check
 // well-known locations before falling back to plain "gh".
 const GH = [
@@ -243,7 +243,7 @@ export default function Git() {
     new Promise(resolve => {
       const prompt = `In the git repo at ${projectRoot} (current branch), run: git log main..HEAD --oneline and git diff main...HEAD --stat to see what this branch changes. Then reply with ONLY a PR title on the first line, then a blank line, then a markdown PR body (summary bullets, verification notes, any pending setup items). No other commentary.`;
       let out = "";
-      const p = spawn(HERMES, ["--cli", "-z", prompt], { env: { ...process.env } });
+      const p = spawn(hermesPath(), ["--cli", "-z", prompt], { env: { ...process.env } });
       p.stdout.on("data", d => (out += d.toString()));
       p.on("close", () => {
         const text = out.trim();

@@ -19,6 +19,8 @@ test("bridge: auth, fs, exec, ws spawn", async () => {
     const h = { "x-devtonic-token": TOKEN, "content-type": "application/json" };
     const env = await (await fetch(`${base}/api/env`, { headers: h })).json();
     assert.ok(env.homedir);
+    assert.ok(env.hermes && typeof env.hermes.path === "string" && typeof env.hermes.found === "boolean");
+    assert.ok(["env", "path", "fallback", "missing"].includes(env.hermes.source));
     const ex = await (await fetch(`${base}/api/fs`, { method: "POST", headers: h, body: JSON.stringify({ fn: "existsSync", args: ["package.json"] }) })).json();
     assert.deepEqual(ex, { ok: true, value: true });
     const bad = await (await fetch(`${base}/api/fs`, { method: "POST", headers: h, body: JSON.stringify({ fn: "rmSync", args: ["/"] }) })).json();

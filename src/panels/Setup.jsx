@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
+import { hermesFound, refreshHermes } from "../platform/hermes.js";
 
 // First-run setup wizard: detects missing dependencies (hermes, git, node
 // runtime pieces) and installs them. Shown when hermes isn't on the machine.
 const { execFile, spawn } = window.require("child_process");
 const os = window.require("os");
 const path = window.require("path");
-const fs = window.require("fs");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const PLATFORM = process.platform; // linux | darwin | win32
 
 const which = cmd => new Promise(r => execFile(PLATFORM === "win32" ? "where" : "which", [cmd], e => r(!e)));
@@ -21,7 +20,7 @@ export default function Setup({ onDone }) {
   useEffect(() => {
     (async () => {
       setChecks({
-        hermes: fs.existsSync(HERMES) || (await which("hermes")),
+        hermes: hermesFound() || (await refreshHermes()).found,
         git: await which("git"),
         python: (await which("python3")) || (await which("python")),
         curl: (await which("curl")) || PLATFORM === "win32",
@@ -46,7 +45,8 @@ export default function Setup({ onDone }) {
       setInstalling(false);
       if (code === 0) {
         setLog(l => l + "\n✓ Hermes installed. Run `hermes model` in the Terminal tab to pick your provider, or import a workspace image to bring everything from another machine.\n");
-        setChecks(c => ({ ...c, hermes: true }));
+        // Re-resolve so Chat & co. spawn the freshly installed binary.
+        refreshHermes().finally(() => setChecks(c => ({ ...c, hermes: true })));
       } else {
         setLog(l => l + `\n⚠️ Installer exited ${code}. You can install manually: https://hermes-agent.nousresearch.com/docs\n`);
       }
