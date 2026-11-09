@@ -1,5 +1,5 @@
-// In-app file/folder picker for the browser build. Replaces the old prompt()
-// dialogs behind ipcRenderer.invoke("pick-folder" | "pick-file"). Plain DOM so
+// In-app file/folder picker for the browser build, exposed as pickFolder() /
+// pickFile() in web.js (replacing the old prompt() dialogs). Plain DOM so
 // the shim can use it before React mounts. Listing goes through the bridge's
 // readdirSync (passed in as `listDir`).
 import { normalize, parentDir, joinPath, crumbs, expandHome, visibleEntries } from "./picker-model.js";

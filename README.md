@@ -40,7 +40,7 @@ browser tab ──HTTP /api/fs, /api/exec──▶ server/index.mjs (127.0.0.1 o
             ──WebSocket /api/proc─────▶   spawns git / hermes / rg / bash with streamed stdio
 ```
 
-`src/platform/shim.js` installs `window.require("fs" | "path" | "os" | "child_process")` backed by that bridge. Browser-only features (opening links, clipboard, notifications, zoom, file pickers) come from `src/platform/web.js`. For details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+`src/platform/shim.js` installs `window.require("fs" | "path" | "os" | "child_process")` backed by that bridge. Browser-only features (opening links, clipboard, notifications, zoom, file pickers) come from `src/platform/web.js`; there is no `window.require("electron")`, so custom panels should import `web.js` directly. For details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 **Notifications:** to get a desktop notification when a background agent worker finishes while you're in another tab, open **⚙ Settings → notifications** and click **enable**.
 
