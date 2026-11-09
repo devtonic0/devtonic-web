@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { listProcesses } from "../platform/procs.js";
 
 // AI Tasks: scheduled cron jobs + currently-running Hermes/agent processes.
 // Cron: pause/resume/run-now/remove via `hermes cron`. Running: SIGINT via kill.
@@ -19,14 +20,8 @@ function loadJobs() {
 }
 
 function fetchRunning(cb) {
-  execFile("ps", ["-eo", "pid,etime,args", "--sort=start_time", "--no-headers", "-u", process.env.USER || ""],
-    { maxBuffer: 4e6 }, (_e, out) => {
-      const rows = (out || "").split("\n").filter(Boolean).map(l => {
-        const m = l.trim().match(/^(\d+)\s+(\S+)\s+(.*)$/);
-        return m ? { pid: +m[1], time: m[2], cmd: m[3] } : null;
-      }).filter(p => p && AGENT_RE.test(p.cmd));
-      cb(rows);
-    });
+  listProcesses({ fields: ["pid", "time", "cmd"], sort: "start" },
+    rows => cb(rows.filter(p => AGENT_RE.test(p.cmd))));
 }
 
 function lastOutput(id) {
