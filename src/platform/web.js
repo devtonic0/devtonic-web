@@ -1,6 +1,6 @@
 // Browser-native platform helpers. These replace the Electron APIs the panels
-// used to reach through window.require("electron"): shell, clipboard,
-// webFrame, ipcRenderer, and desktop notifications.
+// originally used (shell, clipboard, webFrame, ipcRenderer, and desktop
+// notifications); the shim no longer provides window.require("electron").
 import { openPicker } from "./picker.js";
 import { extensionsFrom } from "./picker-model.js";
 import { safeExternalUrl, shouldNotify, notificationStatus, clampScale, notificationBody } from "./web-model.js";

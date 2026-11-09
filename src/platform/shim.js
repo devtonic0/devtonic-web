@@ -1,11 +1,13 @@
-// Browser shim: provides window.require("fs"|"path"|"os"|"child_process"|"electron")
+// Browser shim: provides window.require("fs"|"path"|"os"|"child_process")
 // backed by the devtonic-web bridge server (server/index.mjs). Panels written
-// for Electron's nodeIntegration renderer keep working unchanged.
+// for a Node-integrated renderer keep working unchanged. Browser-only APIs
+// (links, clipboard, zoom, pickers, notifications) live in ./web.js; there is
+// no window.require("electron").
 //
 // Sync fs calls use synchronous XHR to 127.0.0.1. That is deliberate for v0
 // (zero panel rewrites) — see ROADMAP.md "async fs migration".
 import pathMod from "path-browserify";
-import * as web from "./web.js";
+import { resolveModule } from "./modules.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -117,31 +119,8 @@ if (!window.require) {
   const exec = (cmd, opts, cb) => execFile("bash", ["-lc", cmd], opts, cb);
   const child_process = { spawn, execFile, exec };
 
-  // ---- electron compatibility stand-ins ----
-  // Built-in panels import src/platform/web.js directly. This object is kept
-  // only so third-party or legacy panels that still call
-  // window.require("electron") don't crash. Prefer web.js in new code.
-  const electron = {
-    ipcRenderer: {
-      invoke: async (ch, ...a) => {
-        if (ch === "pick-folder") return web.pickFolder();
-        if (ch === "pick-file") return web.pickFile(a[0]);
-        if (ch === "open-external") return web.openExternal(a[0]);
-        if (ch === "app-restart") return web.reloadApp();
-        return null;
-      },
-      on: () => {}, send: () => {},
-    },
-    clipboard: { writeText: t => { web.copyText(t); }, readText: () => "" },
-    shell: { openExternal: u => web.openExternal(u) },
-    webFrame: { setZoomFactor: f => { web.setUiScale(f * 100); } },
-  };
-
-  const MODS = { fs, path: pathMod, os, child_process, electron };
-  window.require = name => {
-    if (MODS[name]) return MODS[name];
-    throw new Error(`devtonic-web: module "${name}" is not available in the browser build`);
-  };
+  const MODS = { fs, path: pathMod, os, child_process };
+  window.require = name => resolveModule(MODS, name);
 
   window.process = {
     env: ENV.env, platform: ENV.platform, cwd: () => ENV.cwd,
