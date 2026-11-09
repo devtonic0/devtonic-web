@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import catalog from "../providers-catalog.json";
 import { bus } from "../store.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // Hermes Config: provider/model dropdowns with API-key management + OAuth
 // sign-in for capable providers (nous, anthropic, openai-codex, xai-oauth,
@@ -12,13 +13,12 @@ const os = window.require("os");
 const path = window.require("path");
 const fs = window.require("fs");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const CONFIG_PATH = path.join(os.homedir(), ".hermes", "config.yaml");
 const ENV_PATH = path.join(os.homedir(), ".hermes", ".env");
 
 const hermes = (...args) =>
   new Promise(resolve => {
-    execFile(HERMES, args, { maxBuffer: 4e6, timeout: 60000 }, (err, out, errOut) =>
+    execFile(hermesPath(), args, { maxBuffer: 4e6, timeout: 60000 }, (err, out, errOut) =>
       resolve({ ok: !err, out: (out || "").trim(), err: (errOut || err?.message || "").trim() })
     );
   });
@@ -214,7 +214,7 @@ export default function Config() {
   function startOAuth() {
     setOauthLog("");
     setOauthRunning(true);
-    const p = spawn(HERMES, ["auth", "add", provider, "--type", "oauth", "--no-browser"],
+    const p = spawn(hermesPath(), ["auth", "add", provider, "--type", "oauth", "--no-browser"],
       { env: { ...process.env } });
     let log = "";
     const push = d => { log += d.toString(); setOauthLog(log); };

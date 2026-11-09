@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import CodeEditor from "./CodeEditor.jsx";
 import { ghostComplete, fixProblem } from "../llm.js";
 import { projectRoot, bus, scanTree, readFileSafe } from "../store.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // Real code editor: CodeMirror 6 w/ syntax, autocomplete, emmet, linting,
 // AI ghost completion, AI-driven fix suggestions, save-on-Ctrl+S. AI calls
@@ -10,7 +11,6 @@ const { execFile, spawn } = window.require("child_process");
 const fsn = window.require("fs");
 const os = window.require("os");
 const pathMod = window.require("path");
-const HERMES = pathMod.join(os.homedir(), ".local", "bin", "hermes");
 
 // Packaged Electron loses PATH tweaks from ~/.bashrc, so re-inject common bin
 // dirs so tsc/eslint/node/gh/etc. resolve when spawned.
@@ -151,7 +151,7 @@ export default function Code() {
     setAiBusy(true); setHits([]);
     const prompt = `You are a code-location service. In the repo at ${root}, find what the user asks for using your search/file tools. USER QUESTION: "${query}". Reply with ONLY matching locations, one per line, exact format: relative/path/to/file:LINE — short note. Max 10 lines, no other text.`;
     let out = "";
-    const p = spawn(HERMES, ["--cli", "-z", prompt], { env: { ...process.env } });
+    const p = spawn(hermesPath(), ["--cli", "-z", prompt], { env: { ...process.env } });
     p.stdout.on("data", d => (out += d.toString()));
     p.on("close", () => {
       setAiBusy(false);

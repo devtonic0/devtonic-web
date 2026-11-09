@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { listProcesses } from "../platform/procs.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // AI Tasks: scheduled cron jobs + currently-running Hermes/agent processes.
 // Cron: pause/resume/run-now/remove via `hermes cron`. Running: SIGINT via kill.
@@ -8,7 +9,6 @@ const os = window.require("os");
 const path = window.require("path");
 const fs = window.require("fs");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const JOBS_PATH = path.join(os.homedir(), ".hermes", "cron", "jobs.json");
 const OUT_DIR = path.join(os.homedir(), ".hermes", "cron", "output");
 
@@ -65,7 +65,7 @@ export default function Tasks() {
 
   function cronCmd(action, id, label) {
     setBusy(`${action} ${id.slice(0, 6)}…`);
-    execFile(HERMES, ["cron", action, id], { timeout: 30000 }, (err, out, errOut) => {
+    execFile(hermesPath(), ["cron", action, id], { timeout: 30000 }, (err, out, errOut) => {
       setBusy("");
       setMsg(err ? `⚠️ ${errOut || err.message}` : `✓ ${label || action} · ${id.slice(0, 6)}`);
       refresh();

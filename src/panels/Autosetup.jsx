@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { hermesPath } from "../platform/hermes.js";
 
 // Auto-setup modal: shown when a project is opened without .hermes/mission.json.
 // Spawns Hermes with a prompt that tells it to scan the codebase and write a
@@ -9,7 +10,6 @@ const os = window.require("os");
 const path = window.require("path");
 const fs = window.require("fs");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const AGENT_LOG = path.join(os.homedir(), ".hermes", "logs", "agent.log");
 
 const SETUP_PROMPT = (root) => `You are setting up Devtonic Mission Control for an existing project.
@@ -71,7 +71,7 @@ export default function Autosetup({ root, onDone, onCancel }) {
     });
 
     let out = "", err = "";
-    const proc = spawn(HERMES, [
+    const proc = spawn(hermesPath(), [
       "--cli", "-z", SETUP_PROMPT(root),
     ], { env: { ...process.env } });
     procRef.current = proc;

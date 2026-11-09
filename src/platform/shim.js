@@ -124,6 +124,8 @@ if (!window.require) {
 
   window.process = {
     env: ENV.env, platform: ENV.platform, cwd: () => ENV.cwd,
+    // Hermes CLI location resolved by the bridge (see server/hermes.mjs).
+    devtonicHermes: ENV.hermes || null,
     kill: (pid, sig) => call("kill", pid, sig),
   };
   window.__DEVTONIC_WEB__ = true;

@@ -6,6 +6,7 @@ import { projectRoot, chatContext, loadSettings, saveSettings, bus,
 import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.js";
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
+import { hermesPath } from "../platform/hermes.js";
 
 // Real Hermes chat with live activity feed + per-turn git diffs.
 // Each turn: spawn `hermes --cli -z <msg> --continue <session>`, tail
@@ -15,7 +16,6 @@ const { spawn, execFile } = window.require("child_process");
 const os = window.require("os");
 const path = window.require("path");
 
-const HERMES = path.join(os.homedir(), ".local", "bin", "hermes");
 const AGENT_LOG = path.join(os.homedir(), ".hermes", "logs", "agent.log");
 const CONFIG_PATH = path.join(os.homedir(), ".hermes", "config.yaml");
 const fs = window.require("fs");
@@ -458,7 +458,7 @@ export default function Chat() {
     const projectEnv = loadProjectEnv(projectRoot);
     let createdSession = false;
     const launch = argv => {
-    const proc = spawn(HERMES, argv, { cwd: projectRoot || undefined, env: { ...projectEnv, ...process.env } });
+    const proc = spawn(hermesPath(), argv, { cwd: projectRoot || undefined, env: { ...projectEnv, ...process.env } });
     procRef.current = proc;
     proc.stdout.on("data", d => { const s = d.toString(); out += s; collectMissing(s); });
     proc.stderr.on("data", d => { const s = d.toString(); err += s; collectMissing(s); });
