@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { copyText, openExternal } from "../platform/web.js";
+import { listeningPorts as pidPorts, processStat as pidStat } from "../platform/procs.js";
 
 // Servers panel — the Hermes background-process registry, curated for
 // dev servers (things like `pnpm dev`, `vite`, `next dev`, `uvicorn`, ...).
@@ -7,8 +8,8 @@ import { copyText, openExternal } from "../platform/web.js";
 // Data source: ~/.hermes/processes.json (written by Hermes' process_registry
 // on spawn/exit). We hydrate each entry with:
 //   - liveness    (kill -0 pid)
-//   - listening ports (ss -ltnp filtered by pid)
-//   - resource use (ps -o pcpu,pmem,etime)
+//   - listening ports (ss on Linux, lsof on macOS; see platform/procs.js)
+//   - resource use (ps -o pcpu=,pmem=,etime=)
 //   - last log lines (best-effort tail of matching Hermes log file, if any)
 // and provide start/stop/restart/logs actions.
 
@@ -35,30 +36,6 @@ function readRegistry() {
 // Async: is a pid alive? kill -0 doesn't send a signal, just tests permission.
 function pidAlive(pid, cb) {
   execFile("kill", ["-0", String(pid)], (err) => cb(!err));
-}
-
-// Async: listening TCP ports for a pid (best-effort; requires ss).
-function pidPorts(pid, cb) {
-  execFile("ss", ["-ltnp"], { maxBuffer: 2e6 }, (_e, out) => {
-    if (!out) return cb([]);
-    const ports = new Set();
-    for (const line of out.split("\n")) {
-      if (!line.includes(`pid=${pid},`)) continue;
-      // Local address column looks like "127.0.0.1:5173" or "[::1]:3000"
-      const m = line.match(/\s(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]|\*):(\d+)\s/);
-      if (m) ports.add(+m[1]);
-    }
-    cb([...ports].sort((a, b) => a - b));
-  });
-}
-
-// Async: cpu%/mem%/etime for a pid via ps.
-function pidStat(pid, cb) {
-  execFile("ps", ["-o", "pcpu=,pmem=,etime=", "-p", String(pid)], (_e, out) => {
-    const m = (out || "").trim().match(/([\d.]+)\s+([\d.]+)\s+(\S+)/);
-    if (!m) return cb(null);
-    cb({ cpu: +m[1], mem: +m[2], time: m[3] });
-  });
 }
 
 function fmtCmd(cmd) {

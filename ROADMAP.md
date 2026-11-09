@@ -6,7 +6,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [x] Replace `prompt()` folder picker with an in-app directory browser (via `/api/fs readdirSync`) ([#2](https://github.com/devtonic0/devtonic-web/pull/2))
 - [x] Remove dead Electron-only code paths (desktop notifications for workers → Web Notifications API; `.desktop` launcher refs) ([#3](https://github.com/devtonic0/devtonic-web/pull/3))
 - [x] Migrate the remaining compatibility-only `window.require("electron")` callers (third-party panels) and then drop the stand-in from the shim ([#4](https://github.com/devtonic0/devtonic-web/pull/4))
-- [ ] Make process listing panels (Tasks, Processes, Servers) cross-platform: they currently assume Linux `ps --sort` / `ss`
+- [x] Make process listing panels (Tasks, Processes, Servers) cross-platform: they currently assume Linux `ps --sort` / `ss` ([#5](https://github.com/devtonic0/devtonic-web/pull/5))
 - [ ] Remove hard-coded `~/.local/bin/hermes`; resolve via `which hermes` / `DEVTONIC_HERMES` env
 - [ ] Code-split heavy panels (Map3D/three.js, CodeMirror) and drop the main chunk below 800 kB
 - [ ] Browser panel: detect frame-blocked sites and offer "open in new tab"

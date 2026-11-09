@@ -1,21 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { listProcesses } from "../platform/procs.js";
 
 // Processes: live view of background/dev processes with kill buttons.
 // "dev" filter = node/npm/electron/vite/next/python servers; "all" = everything yours.
 const { execFile } = window.require("child_process");
 
 const DEV_RE = /node|npm|electron|vite|next|python|uvicorn|flask|cargo|go run|devtonic|hermes/i;
-const SELF_RE = /ps -eo|Processes panel/;
+const SELF_RE = /^ps -[AU] |Processes panel/;
 
 function fetchProcs(cb) {
-  execFile("ps", ["-eo", "pid,pcpu,pmem,etime,args", "--sort=-pcpu", "--no-headers", "-u", process.env.USER || ""],
-    { maxBuffer: 4e6 }, (_e, out) => {
-      const rows = (out || "").split("\n").filter(Boolean).map(l => {
-        const m = l.trim().match(/^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
-        return m ? { pid: +m[1], cpu: +m[2], mem: +m[3], time: m[4], cmd: m[5] } : null;
-      }).filter(Boolean).filter(p => !SELF_RE.test(p.cmd));
-      cb(rows);
-    });
+  listProcesses({ fields: ["pid", "cpu", "mem", "time", "cmd"], sort: "-cpu" },
+    rows => cb(rows.filter(p => !SELF_RE.test(p.cmd))));
 }
 
 export default function Processes() {

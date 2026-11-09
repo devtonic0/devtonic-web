@@ -21,7 +21,7 @@ npm run build
 npm start          # prints http://127.0.0.1:4777/?token=… and opens it
 ```
 
-You need Node ≥ 20. For the chat panel, install Hermes first: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` (or devtonic-agent).
+You need Node ≥ 20 on Linux or macOS. For the chat panel, install Hermes first: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` (or devtonic-agent).
 
 ### Development
 
