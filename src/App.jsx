@@ -2,11 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import DockLayout from "rc-dock";
 import "rc-dock/dist/rc-dock.css";
 import Chat from "./panels/Chat.jsx";
-import Map3D from "./panels/Map3D.jsx";
 import Flow from "./panels/Flow.jsx";
 import Progress from "./panels/Progress.jsx";
 import Notes from "./panels/Notes.jsx";
-import Code from "./panels/Code.jsx";
 import Browser from "./panels/Browser.jsx";
 import Terminal from "./panels/Terminal.jsx";
 import Git from "./panels/Git.jsx";
@@ -25,6 +23,11 @@ import Workers from "./panels/Workers.jsx";
 import Servers from "./panels/Servers.jsx";
 import Tasks from "./panels/Tasks.jsx";
 import Autosetup from "./panels/Autosetup.jsx";
+import { lazyPanel } from "./panels/lazy.jsx";
+
+// Heavy panels live in their own chunks (see src/panels/lazy.jsx).
+const Map3D = lazyPanel(() => import("./panels/Map3D.jsx"), "Map");
+const Code = lazyPanel(() => import("./panels/Code.jsx"), "Code");
 import { bus } from "./store.js";
 import { projectRoot, setProject, recentProjects, loadSettings, saveSettings } from "./store.js";
 import logoUrl from "../assets/logo-small.png";
