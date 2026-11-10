@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine,
          drawSelection, highlightSpecialChars } from "@codemirror/view";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
@@ -10,48 +10,16 @@ import { indentOnInput, syntaxHighlighting, defaultHighlightStyle,
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { lintKeymap, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { javascript } from "@codemirror/lang-javascript";
-import { css } from "@codemirror/lang-css";
-import { html } from "@codemirror/lang-html";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { python } from "@codemirror/lang-python";
-import { xml } from "@codemirror/lang-xml";
-import { sql } from "@codemirror/lang-sql";
-import { rust } from "@codemirror/lang-rust";
-import { cpp } from "@codemirror/lang-cpp";
-import { abbreviationTracker } from "@emmetio/codemirror6-plugin";
-
-// Language lookup by file extension. HTML gets emmet abbreviation-tracker so
-// typing `d` then Tab expands to `<div></div>`, etc.
-function langFor(path) {
-  const ext = (path || "").split(".").pop().toLowerCase();
-  switch (ext) {
-    case "js": case "mjs": case "cjs": return [javascript({ jsx: false })];
-    case "jsx": return [javascript({ jsx: true }), abbreviationTracker()];
-    case "ts": return [javascript({ typescript: true })];
-    case "tsx": return [javascript({ typescript: true, jsx: true }), abbreviationTracker()];
-    case "css": case "scss": case "sass": case "less": return [css()];
-    case "html": case "htm": case "svelte": case "vue": return [html(), abbreviationTracker()];
-    case "json": return [json()];
-    case "md": case "mdx": return [markdown()];
-    case "py": return [python()];
-    case "xml": return [xml()];
-    case "sql": return [sql()];
-    case "rs": return [rust()];
-    case "c": case "cpp": case "cc": case "h": case "hpp": return [cpp()];
-    default: return [];
-  }
-}
+import { loadLanguage } from "./code-langs.js";
 
 // Base extension bundle shared by every editor instance.
-function baseExtensions(path, onChange) {
+function baseExtensions(langSlot, onChange) {
   return [
     lineNumbers(), highlightSpecialChars(), history(), foldGutter(), drawSelection(),
     lintGutter(), highlightActiveLine(), highlightSelectionMatches(),
     indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    ...langFor(path),
+    langSlot.of([]),
     keymap.of([
       indentWithTab,
       ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap,
@@ -81,14 +49,22 @@ export default function CodeEditor({ path, value, onChange, diagnostics, scrollL
   // Create editor once per file change (extensions/languages differ per ext).
   useEffect(() => {
     if (!parentRef.current) return;
+    const langSlot = new Compartment();
     const state = EditorState.create({
       doc: value ?? "",
-      extensions: baseExtensions(path, onChange),
+      extensions: baseExtensions(langSlot, onChange),
     });
     const view = new EditorView({ state, parent: parentRef.current });
     viewRef.current = view;
     lastPathRef.current = path;
-    return () => view.destroy();
+    // Language packs are fetched on demand; the editor is usable (plain text)
+    // until the pack arrives, then highlighting is swapped in.
+    let alive = true;
+    loadLanguage(path).then(
+      ext => { if (alive && ext.length) view.dispatch({ effects: langSlot.reconfigure(ext) }); },
+      err => console.warn("[code] language pack failed to load:", err),
+    );
+    return () => { alive = false; view.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 

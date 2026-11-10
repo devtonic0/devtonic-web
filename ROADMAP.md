@@ -8,7 +8,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [x] Migrate the remaining compatibility-only `window.require("electron")` callers (third-party panels) and then drop the stand-in from the shim ([#4](https://github.com/devtonic0/devtonic-web/pull/4))
 - [x] Make process listing panels (Tasks, Processes, Servers) cross-platform: they currently assume Linux `ps --sort` / `ss` ([#5](https://github.com/devtonic0/devtonic-web/pull/5))
 - [x] Remove hard-coded `~/.local/bin/hermes`; resolve via `which hermes` / `DEVTONIC_HERMES` env ([#6](https://github.com/devtonic0/devtonic-web/pull/6))
-- [ ] Code-split heavy panels (Map3D/three.js, CodeMirror) and drop the main chunk below 800 kB
+- [x] Code-split heavy panels (Map3D/three.js, CodeMirror) and drop the main chunk below 800 kB
 - [ ] Browser panel: detect frame-blocked sites and offer "open in new tab"
 
 ## Phase 2: Quality
