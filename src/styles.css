@@ -204,6 +204,23 @@ body {
   color: var(--text); padding: 0 12px; font-size: 12px; font-family: var(--mono); outline: none;
 }
 .url-input:focus { border-color: var(--accent); }
+.browser-bar button:disabled { opacity: .4; cursor: default; }
+.browser-note { padding: 6px 12px; font-size: 12px; color: var(--dim); background: var(--bg2); border-bottom: 1px solid var(--border); }
+.browser-blocked { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.browser-dim { color: var(--dim); font-size: 13px; }
+.browser-blocked-card {
+  max-width: 440px; display: flex; flex-direction: column; gap: 10px; padding: 20px;
+  border: 1px solid var(--border2); border-radius: 12px; background: var(--panel);
+}
+.browser-blocked-title { color: var(--text); font-size: 15px; font-weight: 600; }
+.browser-blocked-reason { font-family: var(--mono); font-size: 11px; color: var(--dim); background: var(--bg2); padding: 6px 8px; border-radius: 6px; word-break: break-all; }
+.browser-blocked-actions { display: flex; gap: 8px; margin-top: 4px; }
+.browser-action {
+  height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--bg2); color: var(--text); cursor: pointer; font-size: 12px;
+}
+.browser-action:hover { border-color: var(--accent); }
+.browser-action.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 webview { flex: 1; background: white; }
 
 /* ---------- progress ---------- */

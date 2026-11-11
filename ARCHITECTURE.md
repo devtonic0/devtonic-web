@@ -14,7 +14,8 @@
 | Process listing | `src/platform/procs.js`, `procs-model.js` | Cross-platform `listProcesses`, `processStat` and `listeningPorts` used by Tasks, Processes and Servers. It sticks to POSIX `ps -A/-U -o col=` flags and sorts in JS, because procps' `--sort` and `--no-headers` don't exist on macOS. Ports come from `ss -ltnp` on Linux and from `lsof -iTCP -sTCP:LISTEN -Fpn` on macOS (also the Linux fallback when `ss` is missing). Parsers are unit-tested, and one test runs the real `ps` |
 | Hermes binary | `server/hermes.mjs`, `src/platform/hermes.js` | The bridge resolves the agent CLI (`DEVTONIC_HERMES` → `PATH` like `which` → `~/.local/bin`, `~/.hermes/bin`, `/opt/homebrew/bin`, `/usr/local/bin`) and returns it as `hermes: {path, source, found}` in `/api/env`. Panels call `hermesPath()` at spawn time; Setup calls `refreshHermes()` after installing so new spawns pick up the binary. The resolver is unit-tested |
 | Code splitting | `src/panels/lazy.jsx`, `src/panels/code-langs.js` | Heavy panels load as separate chunks. `lazyPanel()` wraps `React.lazy` with a Suspense placeholder and an error boundary that offers a reload if a chunk fetch fails. Map (force-graph/d3) and Code (CodeMirror) are lazy in `TABS`. Inside the editor, each CodeMirror language pack (plus emmet for HTML/JSX/TSX) is a dynamic import, swapped in through a `Compartment` once it arrives. `langKeyFor()` is unit-tested, and `test/bundle-budget.test.mjs` fails if any built JS chunk is over 800 kB |
-| Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn) |
+| Browser panel | `src/panels/Browser.jsx`, `src/platform/frame-model.js`, `server/frame-check.mjs` | `<iframe>` preview with its own back/forward stack. Before framing a URL it asks the bridge (`/api/frame-check`) whether the response's `Content-Security-Policy: frame-ancestors` / `X-Frame-Options` headers forbid embedding by the UI's origin; blocked sites show an "Open in new tab" card (with "Try anyway"). URL normalisation, the nav stack and the header verdict are pure and unit-tested |
+| Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn), `/api/frame-check` |
 
 ## Project contract: `devtonic.config.json`
 
@@ -32,6 +33,7 @@ Planned: switch to a structured streaming API exposed by devtonic-agent (see ROA
 - `POST /api/fs {fn, args}` returns `{ok, value}` or `{ok:false, error}`. This is an allow-listed set of `fs` functions.
 - `POST /api/exec {file, args, opts}` returns `{error, stdout, stderr}`
 - `WS /api/proc`: client sends `spawn | stdin | end | kill`; server sends `pid | out | err | error | close`
+- `GET /api/frame-check?url=<http(s) url>` fetches the page (6 s timeout, redirects followed) and returns `{ok, status, finalUrl, blocked, reason}` or `{ok:false, error}`
 
 All endpoints require the `x-devtonic-token` header or a `?token=` query param.
 
@@ -42,4 +44,4 @@ Background fix-worker completions (`~/.hermes/fix-workers/*/report.json`) always
 ## Known v0 compromises
 
 - Sync `fs` calls use synchronous XHR so that panels didn't need rewriting. Migrating to async is on the roadmap.
-- The Browser panel is an `<iframe>`, so sites that send `X-Frame-Options` won't render.
+- The Browser panel is an `<iframe>`, so sites that forbid framing (`X-Frame-Options` / CSP `frame-ancestors`) can't render inline. The panel detects this via the bridge and offers "Open in new tab"; pages that block framing by other means (JS frame-busting, cookie rules) aren't detected.
