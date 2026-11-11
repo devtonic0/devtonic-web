@@ -12,6 +12,7 @@ import { spawn, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { resolveHermes } from "./hermes.mjs";
+import { checkFrame } from "./frame-check.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "..", "dist");
@@ -86,6 +87,12 @@ const server = http.createServer(async (req, res) => {
           res.end(JSON.stringify({ error: err ? { message: err.message, code: err.code } : null, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") }));
         });
       return;
+    }
+    if (url.pathname === "/api/frame-check") {
+      // The embedder is wherever the UI is served from (this server).
+      const embedder = `http://${req.headers.host || `${HOST}:${PORT}`}`;
+      const result = await checkFrame(url.searchParams.get("url") || "", embedder);
+      res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(result));
     }
     res.writeHead(404); return res.end();
   }

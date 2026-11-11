@@ -9,7 +9,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [x] Make process listing panels (Tasks, Processes, Servers) cross-platform: they currently assume Linux `ps --sort` / `ss` ([#5](https://github.com/devtonic0/devtonic-web/pull/5))
 - [x] Remove hard-coded `~/.local/bin/hermes`; resolve via `which hermes` / `DEVTONIC_HERMES` env ([#6](https://github.com/devtonic0/devtonic-web/pull/6))
 - [x] Code-split heavy panels (Map3D/three.js, CodeMirror) and drop the main chunk below 800 kB ([#7](https://github.com/devtonic0/devtonic-web/pull/7))
-- [ ] Browser panel: detect frame-blocked sites and offer "open in new tab"
+- [x] Browser panel: detect frame-blocked sites and offer "open in new tab" ([#8](https://github.com/devtonic0/devtonic-web/pull/8))
 
 ## Phase 2: Quality
 - [ ] ESLint + Prettier config and CI step

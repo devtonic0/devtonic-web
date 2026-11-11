@@ -10,6 +10,7 @@
   "files": [
     "dist/**",
     "server/**",
+    "src/platform/frame-model.js",
     "assets/**"
   ],
   "scripts": {
