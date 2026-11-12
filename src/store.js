@@ -32,11 +32,13 @@ function watchMission(root) {
   missionWatcher?.close();
   missionWatcher = null;
   try {
-    // Watch the project root for changes to devtonic.config.json — much simpler
-    // than watching a subdir like the old .hermes/ layout.
+    // Watch devtonic.config.json itself. The browser shim's fs.watch polls the
+    // watched path's mtime, and a directory's mtime doesn't change when a file
+    // inside it is edited, so watching the root never fired. The shim reports
+    // the basename (and tolerates the file not existing yet).
     let t = null;
-    missionWatcher = fs.watch(root, (_evt, file) => {
-      if (file !== CONFIG_FILE) return;
+    missionWatcher = fs.watch(missionPath(root), (_evt, file) => {
+      if (file && file !== CONFIG_FILE) return;
       clearTimeout(t);
       t = setTimeout(() => bus.emit("mission", loadMission(root)), 250);
     });

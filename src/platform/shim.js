@@ -8,6 +8,7 @@
 // (zero panel rewrites) — see ROADMAP.md "async fs migration".
 import pathMod from "path-browserify";
 import { resolveModule } from "./modules.js";
+import { createMtimePoller } from "./watch-model.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -51,13 +52,13 @@ if (!window.require) {
     renameSync: (a, b) => call("renameSync", a, b),
     readTail: (p, n) => call("readTail", p, n),
     constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
-    // Polling watcher (mtime of the watched path's files is not cheap remotely,
-    // so we just tick; callers re-read what they need).
+    // Polling watcher: fs.watch over the bridge polls the path's mtime and
+    // reports (eventType, basename) like Node does for a watched file. Watch
+    // files, not directories — a directory's mtime doesn't change on edits.
     watch: (p, cb) => {
-      let last = null;
-      const t = setInterval(() => {
-        try { const s = call("statSync", p).mtimeMs; if (last !== null && s !== last) cb("change", null); last = s; } catch {}
-      }, 2000);
+      const poller = createMtimePoller(p, () => call("statSync", p).mtimeMs, cb);
+      poller.tick();
+      const t = setInterval(poller.tick, 2000);
       return { close: () => clearInterval(t) };
     },
   };
