@@ -13,7 +13,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 
 ## Phase 2: Quality
 - [ ] ESLint + Prettier config and CI step
-- [ ] Unit tests for `store.js` config IO and `routing.js` tier selection
+- [x] Unit tests for `store.js` config IO and `routing.js` tier selection (also fixes the config watcher, which never fired in the browser shim)
 - [ ] Playwright smoke test: boot server, load UI, assert each default panel renders without console errors
 - [ ] Async fs migration: add `fs.promises` to shim and convert panels off sync XHR
 
