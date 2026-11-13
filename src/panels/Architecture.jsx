@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { loadMission, saveMission, bus, projectRoot } from "../store.js";
+import { bus, projectRoot } from "../store.js";
+import { useMission } from "./use-mission.js";
 
 // Architecture: clickable nodes → purpose explanation + live code references.
 const { execFile } = window.require("child_process");
@@ -54,11 +55,10 @@ function NodeDetail({ node, onBack }) {
 }
 
 export default function Architecture() {
-  const [mission, setMission] = useState(loadMission);
   const [selected, setSelected] = useState(null);
-  useEffect(() => bus.on("project", () => { setMission(loadMission()); setSelected(null); }), []);
-  useEffect(() => bus.on("mission", m => setMission({ ...m })), []);
+  const [mission] = useMission(() => setSelected(null));
 
+  if (!mission) return <div className="panel-body"><div className="empty-hint">loading…</div></div>;
   const arch = mission.architecture ?? DEFAULT_ARCH;
 
   if (selected) {
