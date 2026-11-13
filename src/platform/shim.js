@@ -4,11 +4,13 @@
 // (links, clipboard, zoom, pickers, notifications) live in ./web.js; there is
 // no window.require("electron").
 //
-// Sync fs calls use synchronous XHR to 127.0.0.1. That is deliberate for v0
-// (zero panel rewrites) — see ROADMAP.md "async fs migration".
+// Sync fs calls use synchronous XHR to 127.0.0.1 so legacy panels work
+// unchanged. Polling and new code should use `fs.promises` (fetch-based, see
+// ./fs-async.js), which doesn't block the main thread. fs.watch polls async.
 import pathMod from "path-browserify";
 import { resolveModule } from "./modules.js";
-import { createMtimePoller } from "./watch-model.js";
+import { createAsyncMtimePoller } from "./watch-model.js";
+import { createFsPromises, fetchRpc } from "./fs-async.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -52,15 +54,17 @@ if (!window.require) {
     renameSync: (a, b) => call("renameSync", a, b),
     readTail: (p, n) => call("readTail", p, n),
     constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
-    // Polling watcher: fs.watch over the bridge polls the path's mtime and
-    // reports (eventType, basename) like Node does for a watched file. Watch
-    // files, not directories — a directory's mtime doesn't change on edits.
+    // Polling watcher: fs.watch over the bridge polls the path's mtime (async,
+    // via fs.promises) and reports (eventType, basename) like Node does for a
+    // watched file. Watch files, not directories — a directory's mtime doesn't
+    // change on edits.
     watch: (p, cb) => {
-      const poller = createMtimePoller(p, () => call("statSync", p).mtimeMs, cb);
+      const poller = createAsyncMtimePoller(p, async () => (await fs.promises.stat(p)).mtimeMs, cb);
       poller.tick();
       const t = setInterval(poller.tick, 2000);
       return { close: () => clearInterval(t) };
     },
+    promises: createFsPromises(fetchRpc(TOKEN)),
   };
 
   // ---- os ----

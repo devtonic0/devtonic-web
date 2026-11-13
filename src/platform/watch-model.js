@@ -31,3 +31,26 @@ export function createMtimePoller(p, readMtime, onEvent) {
     },
   };
 }
+
+/**
+ * Async variant: `readMtime` returns a Promise (rejecting when the path is
+ * missing). tick() returns a Promise; a tick that fires while the previous read
+ * is still in flight is skipped, so slow bridges never queue up overlapping
+ * stats or report events out of order.
+ */
+export function createAsyncMtimePoller(p, readMtime, onEvent) {
+  let value; // latest resolved mtime (null = missing), fed to the sync poller
+  const inner = createMtimePoller(p, () => { if (value === null) throw new Error("missing"); return value; }, onEvent);
+  let inFlight = null;
+  return {
+    tick() {
+      if (inFlight) return inFlight;
+      inFlight = Promise.resolve()
+        .then(readMtime)
+        .then(v => v, () => null)
+        .then(v => { value = v; inner.tick(); })
+        .finally(() => { inFlight = null; });
+      return inFlight;
+    },
+  };
+}

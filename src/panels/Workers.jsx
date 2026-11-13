@@ -13,38 +13,46 @@ const { execFile } = window.require("child_process");
 
 const ROOT = path.join(os.homedir(), ".hermes", "fix-workers");
 
-function readText(p, tailBytes) {
+// All reads go through fs.promises (fetch) so the 1.5–2 s polls never block
+// the UI thread with synchronous XHR.
+const fsp = fs.promises;
+
+async function readText(p, tailBytes) {
   try {
-    if (tailBytes) return fs.readTail ? fs.readTail(p, tailBytes) : fs.readFileSync(p, "utf8").slice(-tailBytes);
-    return fs.readFileSync(p, "utf8");
+    if (tailBytes) return fsp.readTail ? await fsp.readTail(p, tailBytes) : (await fsp.readFile(p, "utf8")).slice(-tailBytes);
+    return await fsp.readFile(p, "utf8");
   } catch { return ""; }
 }
 
-function readJSON(p) {
-  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; }
+async function readJSON(p) {
+  try { return JSON.parse(await fsp.readFile(p, "utf8")); } catch { return null; }
 }
 
 // Enumerate worker state dirs and read their status without blocking.
-function scanWorkers() {
+async function scanWorkers() {
   let names = [];
   try {
-    names = fs.readdirSync(ROOT, { withFileTypes: true })
+    names = (await fsp.readdir(ROOT, { withFileTypes: true }))
       .filter(d => d.isDirectory() && d.name !== "specs")
       .map(d => d.name);
   } catch { return []; }
-  return names.map(id => {
+  const rows = await Promise.all(names.map(async id => {
     const dir = path.join(ROOT, id);
-    const state = (readText(path.join(dir, "state")) || "").trim();
-    const pid = (readText(path.join(dir, "worker.pid")) || "").trim();
-    const started = parseInt((readText(path.join(dir, "started")) || "0").trim(), 10) || 0;
-    const report = readJSON(path.join(dir, "report.json"));
+    const [stateTxt, pidTxt, startedTxt, report] = await Promise.all([
+      readText(path.join(dir, "state")), readText(path.join(dir, "worker.pid")),
+      readText(path.join(dir, "started")), readJSON(path.join(dir, "report.json")),
+    ]);
+    const state = (stateTxt || "").trim();
+    const pid = (pidTxt || "").trim();
+    const started = parseInt((startedTxt || "0").trim(), 10) || 0;
     // Alive check: state says running AND the pid is live.
     let alive = false;
     if (state === "running" && pid) {
       try { process.kill(+pid, 0); alive = true; } catch { alive = false; }
     }
     return { id, dir, state, pid, started, report, alive };
-  }).sort((a, b) => (b.started || 0) - (a.started || 0));
+  }));
+  return rows.sort((a, b) => (b.started || 0) - (a.started || 0));
 }
 
 function fmtAgo(epoch) {
@@ -64,16 +72,20 @@ function WorkerTail({ dir, live }) {
   const [text, setText] = useState("");
   const preRef = useRef(null);
   useEffect(() => {
-    const load = () => {
-      const liveLog = live ? readText(path.join(dir, "live.log"), 40000) : "";
-      const out = readText(path.join(dir, "worker.out"), 24000);
-      const err = readText(path.join(dir, "worker.err"), 6000);
+    let cancelled = false;
+    const load = async () => {
+      const [liveLog, out, err] = await Promise.all([
+        live ? readText(path.join(dir, "live.log"), 40000) : "",
+        readText(path.join(dir, "worker.out"), 24000),
+        readText(path.join(dir, "worker.err"), 6000),
+      ]);
+      if (cancelled) return;
       const body = (liveLog.trim() || out || "");
       setText(body + (err ? `\n\n─── stderr ───\n${err}` : ""));
     };
     load();
     const iv = setInterval(load, live ? 1500 : 10000);
-    return () => clearInterval(iv);
+    return () => { cancelled = true; clearInterval(iv); };
   }, [dir, live]);
   useEffect(() => {
     if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
@@ -91,15 +103,16 @@ export default function Workers() {
   const [, tick] = useState(0);
 
   useEffect(() => {
-    const refresh = () => setWorkers(scanWorkers());
+    let cancelled = false;
+    const refresh = () => scanWorkers().then(w => { if (!cancelled) setWorkers(w); });
     refresh();
     const iv = setInterval(() => { refresh(); tick(x => x + 1); }, 2000);
-    return () => clearInterval(iv);
+    return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
   function kill(pid) {
     if (!pid) return;
-    execFile("kill", ["-15", String(pid)], () => setTimeout(() => setWorkers(scanWorkers()), 600));
+    execFile("kill", ["-15", String(pid)], () => setTimeout(() => scanWorkers().then(setWorkers), 600));
   }
 
   const open = workers.find(w => w.id === openId);
