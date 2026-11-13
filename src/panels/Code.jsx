@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeEditor from "./CodeEditor.jsx";
 import { ghostComplete, fixProblem } from "../llm.js";
-import { projectRoot, bus, scanTree, readFileSafe } from "../store.js";
+import { projectRoot, bus, scanTreeAsync, readFileSafeAsync } from "../store.js";
 import { hermesPath } from "../platform/hermes.js";
 
 // Real code editor: CodeMirror 6 w/ syntax, autocomplete, emmet, linting,
@@ -26,7 +26,7 @@ const EXEC_ENV = {
 
 export default function Code() {
   const [root, setRoot] = useState(projectRoot);
-  const [tree, setTree] = useState(() => scanTree(projectRoot, 6, 2000));
+  const [tree, setTree] = useState({ nodes: [], links: [] });
   const [open, setOpen] = useState(() => new Set([projectRoot]));
   const [sel, setSel] = useState(null);
   const [content, setContent] = useState("");
@@ -47,35 +47,53 @@ export default function Code() {
 
   const dirty = content !== savedContent;
 
-  useEffect(() => bus.on("project", r => {
-    setRoot(r);
-    setTree(scanTree(r, 6, 2000));
-    setOpen(new Set([r]));
-    setSel(null);
-    setContent(""); setSavedContent("");
-    setHits(null); setQuery("");
-  }), []);
+  // File tree is scanned via fs.promises (concurrent per level) so a large
+  // project no longer freezes the page with thousands of sync XHRs. `scanGen`
+  // drops results from a scan that a later project switch superseded.
+  const scanGen = useRef(0);
+  const rescan = useCallback(r => {
+    const gen = ++scanGen.current;
+    scanTreeAsync(r, 6, 2000).then(t => { if (gen === scanGen.current) setTree(t); }, () => {});
+  }, []);
+
+  useEffect(() => {
+    rescan(projectRoot);
+    const off = bus.on("project", r => {
+      setRoot(r);
+      setTree({ nodes: [], links: [] });
+      rescan(r);
+      setOpen(new Set([r]));
+      setSel(null);
+      setContent(""); setSavedContent("");
+      setHits(null); setQuery("");
+    });
+    return () => { scanGen.current++; off(); };
+  }, [rescan]);
 
   useEffect(() => bus.on("open-file", p => {
     const [file, line] = String(p).split("::");
     selectFile(file, line ? Number(line) : 0);
   }), []);
 
-  function selectFile(p, line = 0) {
+  const loadGen = useRef(0);
+  async function selectFile(p, line = 0) {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    const gen = ++loadGen.current;
     setSel(p);
-    const txt = readFileSafe(p);
+    const txt = await readFileSafeAsync(p);
+    if (gen !== loadGen.current) return; // a newer selection won
     setContent(txt);
     setSavedContent(txt);
     setGoLine(line);
     setGhost("");
   }
 
-  function save() {
+  async function save() {
     if (!sel) return;
+    const snapshot = content;
     try {
-      fsn.writeFileSync(sel, content);
-      setSavedContent(content);
+      await fsn.promises.writeFile(sel, snapshot);
+      setSavedContent(snapshot);
       setAiStatus("✓ saved");
       setTimeout(() => setAiStatus(""), 1500);
     } catch (e) {
@@ -130,19 +148,21 @@ export default function Code() {
       });
   }
 
-  function replaceAll() {
+  async function replaceAll() {
     if (!query.trim() || !hits?.length) return;
     const files = [...new Set(hits.map(h => root + "/" + h.file.replace(/^\.\//, "")))];
-    let count = 0;
-    for (const f of files) {
+    const counts = await Promise.all(files.map(async f => {
       try {
-        const txt = fsn.readFileSync(f, "utf8");
+        const txt = await fsn.promises.readFile(f, "utf8");
         const next = txt.split(query).join(replaceVal);
-        if (next !== txt) { count += txt.split(query).length - 1; fsn.writeFileSync(f, next); }
-      } catch { /* skip unreadable */ }
-    }
+        if (next === txt) return 0;
+        await fsn.promises.writeFile(f, next);
+        return txt.split(query).length - 1;
+      } catch { return 0; /* skip unreadable */ }
+    }));
+    const count = counts.reduce((a, b) => a + b, 0);
     search(query);
-    if (sel) { const t = readFileSafe(sel); setContent(t); setSavedContent(t); }
+    if (sel) { const t = await readFileSafeAsync(sel); setContent(t); setSavedContent(t); }
     alert(`Replaced ${count} occurrence(s) across ${files.length} file(s).`);
   }
 

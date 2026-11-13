@@ -69,8 +69,9 @@ const SETTINGS = [
 ];
 
 // naive yaml getters (read-only display; writes go through `hermes config set`)
+// Reads/writes use fs.promises so the panel never blocks on sync XHR.
 function readConfig() {
-  try { return fs.readFileSync(CONFIG_PATH, "utf8"); } catch { return ""; }
+  return fs.promises.readFile(CONFIG_PATH, "utf8").catch(() => "");
 }
 function yamlGet(text, dotted) {
   const parts = dotted.split(".");
@@ -87,30 +88,30 @@ function yamlGet(text, dotted) {
   }
   return "";
 }
-function readEnvKeys() {
+async function readEnvKeys() {
   try {
-    const text = fs.readFileSync(ENV_PATH, "utf8");
+    const text = await fs.promises.readFile(ENV_PATH, "utf8");
     const keys = {};
     for (const m of text.matchAll(/^([A-Z0-9_]+)=(.+)$/gm)) keys[m[1]] = m[2];
     return keys;
   } catch { return {}; }
 }
-function writeEnvKey(name, value) {
+async function writeEnvKey(name, value) {
   let text = "";
-  try { text = fs.readFileSync(ENV_PATH, "utf8"); } catch { /* new file */ }
+  try { text = await fs.promises.readFile(ENV_PATH, "utf8"); } catch { /* new file */ }
   if (new RegExp(`^${name}=`, "m").test(text)) {
     text = text.replace(new RegExp(`^${name}=.*$`, "m"), `${name}=${value}`);
   } else {
     text = text.trimEnd() + (text ? "\n" : "") + `${name}=${value}\n`;
   }
-  fs.writeFileSync(ENV_PATH, text, { mode: 0o600 });
+  await fs.promises.writeFile(ENV_PATH, text, { mode: 0o600 });
 }
 
 export default function Config() {
-  const [cfgText, setCfgText] = useState(readConfig);
-  const [envKeys, setEnvKeys] = useState(readEnvKeys);
-  const [provider, setProvider] = useState(() => yamlGet(readConfig(), "model.provider") || "anthropic");
-  const [model, setModel] = useState(() => yamlGet(readConfig(), "model.default"));
+  const [cfgText, setCfgText] = useState("");
+  const [envKeys, setEnvKeys] = useState({});
+  const [provider, setProvider] = useState("anthropic");
+  const [model, setModel] = useState("");
   const [liveModels, setLiveModels] = useState({}); // provider -> [ids]
   const [keyInput, setKeyInput] = useState("");
   const [showKeyEdit, setShowKeyEdit] = useState(false);
@@ -126,9 +127,9 @@ export default function Config() {
   const [authList, setAuthList] = useState("");
 
   const refresh = useCallback(async () => {
-    const text = readConfig();
+    const [text, keys] = await Promise.all([readConfig(), readEnvKeys()]);
     setCfgText(text);
-    setEnvKeys(readEnvKeys());
+    setEnvKeys(keys);
     setProvider(yamlGet(text, "model.provider") || "anthropic");
     setModel(yamlGet(text, "model.default"));
     // personalities from config
@@ -162,13 +163,15 @@ export default function Config() {
   // Load live model catalog from installed Hermes on disk (single source of truth).
   useEffect(() => {
     const venvPy = path.join(os.homedir(), ".hermes", "hermes-agent", "venv", "bin", "python3");
-    execFile(fs.existsSync(venvPy) ? venvPy : "python3", ["-c",
+    let live = true;
+    fs.promises.access(venvPy).then(() => venvPy, () => "python3").then(py => { if (live) execFile(py, ["-c",
       "import sys,json; sys.path.insert(0,'" + path.join(os.homedir(), ".hermes", "hermes-agent") + "');" +
       "from hermes_cli.models import _PROVIDER_MODELS;" +
       "print(json.dumps({p: list(m) for p,m in _PROVIDER_MODELS.items()}))"
     ], { maxBuffer: 4e6, timeout: 8000 }, (err, out) => {
-      if (!err && out) { try { setLiveModels(JSON.parse(out)); } catch {} }
-    });
+      if (live && !err && out) { try { setLiveModels(JSON.parse(out)); } catch {} }
+    }); });
+    return () => { live = false; };
   }, []);
 
   const models = useMemo(() => {
@@ -200,12 +203,17 @@ export default function Config() {
     refresh();
   }
 
-  function saveKey() {
+  async function saveKey() {
     if (!envVar || !keyInput.trim()) return;
-    writeEnvKey(envVar, keyInput.trim());
+    try {
+      await writeEnvKey(envVar, keyInput.trim());
+    } catch (e) {
+      setOutput(`⚠️ ${e.message}`);
+      return;
+    }
     setKeyInput("");
     setShowKeyEdit(false);
-    setEnvKeys(readEnvKeys());
+    setEnvKeys(await readEnvKeys());
     setOutput(`✓ ${envVar} saved to ~/.hermes/.env`);
   }
 

@@ -1,21 +1,28 @@
 import React, { useEffect, useState } from "react";
-import { loadMission, saveMission, bus } from "../store.js";
+import { loadMissionAsync, saveMissionAsync, bus } from "../store.js";
 
 export default function Progress() {
-  const [mission, setMission] = useState(loadMission);
+  const [mission, setMission] = useState(null);
   const [text, setText] = useState("");
 
-  useEffect(() => bus.on("project", () => setMission(loadMission())), []);
-  useEffect(() => bus.on("mission", m => setMission({ ...m })), []);
+  // Async load (fs.promises) on mount and on project switch.
+  useEffect(() => {
+    let live = true;
+    const load = () => loadMissionAsync().then(m => { if (live) setMission(m); });
+    load();
+    const offProject = bus.on("project", load);
+    const offMission = bus.on("mission", m => setMission({ ...m }));
+    return () => { live = false; offProject(); offMission(); };
+  }, []);
 
-  const todos = mission.todos ?? [];
+  const todos = mission?.todos ?? [];
   const done = todos.filter(t => t.done).length;
   const pct = todos.length ? Math.round((done / todos.length) * 100) : 0;
 
   function update(next) {
     const m = { ...mission, todos: next };
     setMission(m);
-    saveMission(m);
+    saveMissionAsync(m).catch(() => {});
   }
 
   function add() {
@@ -23,6 +30,10 @@ export default function Progress() {
     if (!t) return;
     update([...todos, { id: crypto.randomUUID(), text: t, done: false }]);
     setText("");
+  }
+
+  if (!mission) {
+    return <div className="panel-body"><div className="prog-wrap"><div className="prog-label">Loading…</div></div></div>;
   }
 
   return (

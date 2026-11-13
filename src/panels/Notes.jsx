@@ -1,20 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import { marked } from "marked";
-import { loadMission, saveMission, bus } from "../store.js";
+import { loadMissionAsync, saveMissionAsync, bus } from "../store.js";
 
 export default function Notes() {
-  const [mission, setMission] = useState(loadMission);
+  const [mission, setMission] = useState(null);
   const [preview, setPreview] = useState(false);
   const saveTimer = useRef(null);
 
-  useEffect(() => bus.on("project", () => setMission(loadMission())), []);
+  // Load via fs.promises so mounting the panel never blocks on sync XHR.
+  // `live` guards against a slow read resolving after unmount.
+  useEffect(() => {
+    let live = true;
+    const load = () => loadMissionAsync().then(m => { if (live) setMission(m); });
+    load();
+    const off = bus.on("project", () => { clearTimeout(saveTimer.current); load(); });
+    return () => { live = false; off(); };
+  }, []);
 
   function edit(text) {
     const m = { ...mission, notes: text };
     setMission(m);
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveMission(m), 600);
+    saveTimer.current = setTimeout(() => { saveMissionAsync(m).catch(() => {}); }, 600);
   }
+
+  if (!mission) return <div className="panel-body"><div className="notes-preview">Loading notes…</div></div>;
 
   return (
     <div className="panel-body">

@@ -185,6 +185,91 @@ export function saveMission(mission, root = projectRoot) {
   bus.emit("mission", mission);
 }
 
+// ---------- async variants (fs.promises — no sync XHR in the browser) ----------
+// Panels that load on mount or react to user edits use these so the main
+// thread never blocks on the bridge. Only standard Node `fs/promises` methods
+// are used, so the same code runs against the shim and against real Node.
+const fsp = () => fs.promises;
+const existsAsync = p => fsp().access(p).then(() => true, () => false);
+
+async function migrateLegacyAsync(root) {
+  const nu = missionPath(root), old = legacyPath(root);
+  if (await existsAsync(nu) || !(await existsAsync(old))) return;
+  try {
+    await fsp().copyFile(old, nu);
+    await fsp().writeFile(old, JSON.stringify({
+      _moved: `→ ${CONFIG_FILE} at project root (migrated by Devtonic)`,
+    }, null, 2));
+  } catch { /* migration is best-effort */ }
+}
+
+export async function loadMissionAsync(root = projectRoot) {
+  await migrateLegacyAsync(root);
+  try {
+    return { ...DEFAULT_MISSION, ...JSON.parse(await fsp().readFile(missionPath(root), "utf8")) };
+  } catch {
+    return structuredClone(DEFAULT_MISSION);
+  }
+}
+
+export async function saveMissionAsync(mission, root = projectRoot) {
+  const p = missionPath(root);
+  await fsp().mkdir(path.dirname(p), { recursive: true });
+  await fsp().writeFile(p, JSON.stringify(mission, null, 2));
+  bus.emit("mission", mission);
+}
+
+export async function readFileSafeAsync(p, limit = 400_000) {
+  try {
+    const text = await fsp().readFile(p, "utf8");
+    if (text.length > limit) return text.slice(0, limit) + "\n\n… (truncated)";
+    return text;
+  } catch (e) {
+    return `⚠️ ${e.message}`;
+  }
+}
+
+/** Same BFS/budget semantics as scanTree, but each directory level is listed
+ *  and stat'ed concurrently via fs.promises. */
+export async function scanTreeAsync(root = projectRoot, maxDepth = 6, maxNodes = 2000) {
+  const nodes = [], links = [];
+  let count = 0;
+  nodes.push({ id: root, name: path.basename(root), dir: true, ext: "root", size: 12, depth: 0 });
+  const queue = [{ dir: root, parentId: root, depth: 1 }];
+  while (queue.length && count < maxNodes) {
+    const { dir, parentId, depth } = queue.shift();
+    if (depth > maxDepth) continue;
+    let entries = [];
+    try { entries = await fsp().readdir(dir, { withFileTypes: true }); } catch { continue; }
+    entries.sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
+    const kept = [];
+    for (const e of entries) {
+      if (count + kept.length >= maxNodes) break;
+      if (e.name.startsWith(".") && e.name !== ".hermes") continue;
+      if (IGNORE.has(e.name)) continue;
+      kept.push(e);
+    }
+    const sizes = await Promise.all(kept.map(e => e.isDirectory()
+      ? 1
+      : fsp().stat(path.join(dir, e.name)).then(s => Math.max(1, Math.min(40, s.size / 2000)), () => 1)));
+    kept.forEach((e, i) => {
+      const full = path.join(dir, e.name);
+      nodes.push({
+        id: full,
+        name: e.name,
+        dir: e.isDirectory(),
+        ext: e.isDirectory() ? "dir" : (e.name.split(".").pop() || "").toLowerCase(),
+        size: sizes[i],
+        depth,
+      });
+      links.push({ source: parentId, target: full });
+      count++;
+      if (e.isDirectory()) queue.push({ dir: full, parentId: full, depth: depth + 1 });
+    });
+  }
+  return { nodes, links };
+}
+
 // ---------- filesystem scan (for map + code tree) ----------
 const IGNORE = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv", ".cache", "coverage"]);
 

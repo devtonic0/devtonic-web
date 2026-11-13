@@ -23,9 +23,10 @@ const fs = window.require("fs");
 // Read the current model+provider from config.yaml each turn so a config
 // change applies immediately without restarting the app. Falls back to
 // letting Hermes pick its own default when unset.
-function currentModel() {
+// Async (fs.promises) so neither render nor send blocks on a sync XHR.
+async function currentModel() {
   try {
-    const text = fs.readFileSync(CONFIG_PATH, "utf8");
+    const text = await fs.promises.readFile(CONFIG_PATH, "utf8");
     const get = k => {
       const parts = k.split(".");
       let indent = 0, idx = 0, lines = text.split("\n");
@@ -52,22 +53,21 @@ marked.setOptions({ breaks: true });
 // running the same command from the project shell. Never overrides existing
 // process.env values (which take priority). Skips the global ~/.hermes/.env
 // because that's already merged by Hermes itself.
-function loadProjectEnv(root) {
+async function loadProjectEnv(root) {
   const out = {};
   if (!root) return out;
   const targets = detectEnvTargets(root).filter(t => t.scope === "project" && t.exists);
-  for (const t of targets) {
-    try {
-      const txt = fs.readFileSync(t.file, "utf8");
-      for (const line of txt.split("\n")) {
-        const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-        if (!m) continue;
-        const key = m[1];
-        // Earlier files win (detectEnvTargets returns .env.local before .env).
-        if (key in out) continue;
-        out[key] = m[2].replace(/^["']|["']$/g, "");
-      }
-    } catch { /* ignore */ }
+  const texts = await Promise.all(targets.map(t => fs.promises.readFile(t.file, "utf8").catch(() => null)));
+  for (const txt of texts) {
+    if (txt == null) continue;
+    for (const line of txt.split("\n")) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!m) continue;
+      const key = m[1];
+      // Earlier files win (detectEnvTargets returns .env.local before .env).
+      if (key in out) continue;
+      out[key] = m[2].replace(/^["']|["']$/g, "");
+    }
   }
   return out;
 }
@@ -287,6 +287,16 @@ export default function Chat() {
   const tailRef = useRef(null);
   const lastRoutedRef = useRef(null);   // { model, tier } picked for the last send
   const [lastRouted, setLastRouted] = useState(null);   // mirror of ref for re-render
+  // Model/provider shown in the header. Read async from config.yaml on mount,
+  // whenever a panel reports a config change, and at the start of each turn.
+  const [modelCfg, setModelCfg] = useState({ model: "", provider: "" });
+  useEffect(() => {
+    let live = true;
+    const load = () => currentModel().then(mc => { if (live) setModelCfg(mc); });
+    load();
+    const off = bus.on("config-dirty", load);
+    return () => { live = false; off(); };
+  }, []);
   // Env-var prompting: when Hermes/tools complain about missing env vars we
   // collect the names during a turn and pop a modal after it ends. Values
   // stay in the modal → disk; they NEVER touch chat state or the LLM.
@@ -343,7 +353,7 @@ export default function Chat() {
     setMessages(historyForProject(newRoot, nextActive) ?? [GREETING]);
   }), []);
 
-  function send(overrideText) {
+  async function send(overrideText) {
     const text = (overrideText ?? input).trim();
     if (!text || busy) return;
     lastUserMsgRef.current = text;
@@ -407,7 +417,8 @@ export default function Chat() {
     });
 
     let out = "", err = "";
-    const mc = currentModel();
+    const mc = await currentModel();
+    setModelCfg(mc);
     // Smart routing: when enabled in settings, classify the prompt and pick
     // a cheaper model for simple tasks. Falls back to configured default.
     const routing = routingStatus();
@@ -455,7 +466,7 @@ export default function Chat() {
     const createArgs = ["--cli", "chat", "-Q", "-q", prompt, "--continue", session, "--create-if-missing", "--no-restore-cwd", ...extra];
     // Merge project .env values into the child env (project-scoped API keys,
     // DB URLs, etc). process.env still wins on conflict.
-    const projectEnv = loadProjectEnv(projectRoot);
+    const projectEnv = await loadProjectEnv(projectRoot);
     let createdSession = false;
     const launch = argv => {
     const proc = spawn(hermesPath(), argv, { cwd: projectRoot || undefined, env: { ...projectEnv, ...process.env } });
@@ -523,7 +534,7 @@ export default function Chat() {
       <div className="chat-meta">
         <span className={`dot ${busy ? "busy" : ""}`} />
         <span>{busy ? "Hermes is working…" : "ready"}</span>
-        {(() => { const mc = currentModel(); if (!mc.model) return null;
+        {(() => { const mc = modelCfg; if (!mc.model) return null;
           const r = routingStatus();
           // If routing is on, show what tier the LAST send picked (or a preview
           // of the input). Otherwise just the raw model name.
