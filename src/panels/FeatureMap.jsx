@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { loadMission, bus, projectRoot } from "../store.js";
+import { bus, projectRoot } from "../store.js";
+import { useMission } from "./use-mission.js";
 
 // Feature Map with drill-in: Overview / Flow / References per feature.
 // refs come from mission.json feature.refs [{file, note}] — falls back to a
@@ -94,11 +95,10 @@ function FeatureDetail({ feature, onBack }) {
 }
 
 export default function FeatureMap() {
-  const [mission, setMission] = useState(loadMission);
   const [selected, setSelected] = useState(null);
-  useEffect(() => bus.on("project", () => { setMission(loadMission()); setSelected(null); }), []);
-  useEffect(() => bus.on("mission", m => setMission({ ...m })), []);
+  const [mission] = useMission(() => setSelected(null));
 
+  if (!mission) return <div className="panel-body"><div className="empty-hint">loading…</div></div>;
   const features = mission.features ?? [];
 
   if (selected) {

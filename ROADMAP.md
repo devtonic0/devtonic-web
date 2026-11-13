@@ -17,7 +17,8 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [ ] Playwright smoke test: boot server, load UI, assert each default panel renders without console errors
 - [x] Async fs migration (first slice): add `fs.promises` to shim; async `fs.watch`; convert polling panels Tasks, Usage, Workers off sync XHR ([#10](https://github.com/devtonic0/devtonic-web/pull/10))
   - [x] Convert remaining panels (Hermes chat model/env reads, Notes, Config, Progress, Code file tree/open/save/replace) to `fs.promises`; async store helpers ([#11](https://github.com/devtonic0/devtonic-web/pull/11))
-  - [ ] Convert the mission readers in Architecture, Features, Flow, Map and Secrets, settings IO, `env-prompt.js`, and the Code lint/fix helpers, then remove sync XHR from the shim
+  - [x] Convert the mission readers in Architecture, Features, Flow, Map (incl. import scan) and Secrets (env discovery/edit via `secrets-model.js`) to `fs.promises`; shared `useMission()` hook
+  - [ ] Convert settings IO (`loadSettings`/`saveSettings` — needs an in-memory cache primed at boot), `env-prompt.js`, the Code lint/fix helpers, and the remaining one-shot reads (Servers, Database, Autosetup, Workspace, App worker reports); then remove sync XHR from the shim
 
 ## Phase 3: Agent integration
 - [ ] Structured streaming chat via devtonic-agent's API (replace log tailing)

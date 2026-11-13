@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import ForceGraph2D from "force-graph";
 import { forceCollide, forceX, forceY } from "d3-force";
-import { projectRoot, bus, scanTree, loadMission } from "../store.js";
+import { projectRoot, bus, scanTreeAsync, loadMissionAsync } from "../store.js";
 
 // Bubble map (bubblemaps-style): 2D draggable bubbles, one color per
 // top-level folder cluster, per-cluster gravity wells so clusters ball up
@@ -94,8 +94,8 @@ function classify(id, rel) {
   return "other";
 }
 
-function buildGraph(root) {
-  const { nodes: raw } = scanTree(root);
+async function buildGraph(root) {
+  const { nodes: raw } = await scanTreeAsync(root);
   const nodes = raw.filter(n => !n.dir);
   // Sub-cluster = immediate parent folder relative to root. Assigns per node.
   const clusters = new Map(); // primary type → hue
@@ -116,7 +116,7 @@ function buildGraph(root) {
     n.hue = clusters.get(type) + subclusters.get(n.subKey).hueShift;
     n.r = Math.max(4, Math.min(20, Math.sqrt(n.size) * 2.0));
   }
-  const importLinks = scanImports(nodes, root);
+  const importLinks = await scanImports(nodes, root);
   const hueOf = new Map(nodes.map(n => [n.id, n.hue]));
   for (const l of importLinks) l.hue = hueOf.get(l.target) ?? 220;
   return { nodes, links: importLinks, clusters, subclusters };
@@ -151,7 +151,7 @@ function wells(clusters, subclusters, spread) {
 const clusterDesc = (n, m) => m?.clusterInfo?.[n] ?? TYPE_DESC[n] ?? `The ${n} category.`;
 const clusterShort = (n, m) => m?.clusterShort?.[n] ?? TYPE_SHORT[n] ?? "files";
 
-function scanImports(nodes, root) {
+async function scanImports(nodes, root) {
   const byPath = new Map(nodes.map(n => [n.id, n]));
   const links = [];
   const srcFiles = nodes.filter(n => !n.dir && /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(n.name));
@@ -162,17 +162,25 @@ function scanImports(nodes, root) {
     }
     return null;
   };
-  for (const f of srcFiles) {
-    let text;
-    try {
-      if (fs.statSync(f.id).size > 150_000) continue;
-      text = fs.readFileSync(f.id, "utf8");
-    } catch { continue; }
+  // Read source files concurrently in small batches (fs.promises, no sync XHR).
+  const texts = new Array(srcFiles.length).fill(null);
+  const fsp = fs.promises;
+  for (let i = 0; i < srcFiles.length; i += 24) {
+    await Promise.all(srcFiles.slice(i, i + 24).map(async (f, j) => {
+      try {
+        if ((await fsp.stat(f.id)).size > 150_000) return;
+        texts[i + j] = await fsp.readFile(f.id, "utf8");
+      } catch { /* unreadable — skip */ }
+    }));
+  }
+  srcFiles.forEach((f, idx) => {
+    const text = texts[idx];
+    if (text == null) return;
     for (const m of text.matchAll(/(?:import[\s\S]*?from\s+|require\()["']((?:\.|@\/)[^"']+)["']/g)) {
       const target = resolve(m[1], path.dirname(f.id));
       if (target && target !== f.id) links.push({ source: f.id, target, kind: "import" });
     }
-  }
+  });
   return links;
 }
 
@@ -184,7 +192,7 @@ export default function Map3D() {
   const [showKey, setShowKey] = useState(true);
   const [showHud, setShowHud] = useState(true);
   const [hidden, setHidden] = useState(new Set());
-  const [mission, setMission] = useState(loadMission);
+  const [mission, setMission] = useState(null);
 
   useEffect(() => {
     const el = mountRef.current;
@@ -197,7 +205,7 @@ export default function Map3D() {
         const rel = path.relative(projectRoot, n.id);
         return `<div style="font:11px monospace;background:#131826;border:1px solid #2b3450;border-radius:8px;padding:6px 10px;color:#d7dce8;max-width:340px">
           <b style="color:${hsl(n.hue, 75, 62)}">${n.cluster}</b> · <span style="color:#9aa5c0">${n.sub === "·root" ? "root" : n.sub}</span><br/>${rel}
-          <div style="color:#7c86a2;margin-top:3px;white-space:normal">${clusterDesc(n.cluster, loadMission())}</div></div>`;
+          <div style="color:#7c86a2;margin-top:3px;white-space:normal">${clusterDesc(n.cluster, st.mission)}</div></div>`;
       })
       // Interaction modes (bubblemap-style):
       //   click       → magnetize the whole PRIMARY cluster toward this node
@@ -288,8 +296,12 @@ export default function Map3D() {
 
     st.g = g;
 
-    const load = (root) => {
-      const data = buildGraph(root);
+    let seq = 0, live = true;
+    const load = async (root) => {
+      const my = ++seq;
+      const [data, m] = await Promise.all([buildGraph(root), loadMissionAsync(root)]);
+      if (!live || my !== seq) return;   // a newer load (or unmount) superseded this one
+      st.mission = m;
       const { subWells } = wells(data.clusters, data.subclusters, Math.min(el.clientWidth, el.clientHeight) * 0.36 || 280);
       // Files pull toward their type+folder sub-well. Once a node is dragged
       // its fx/fy pin overrides the well, so it stays where dropped.
@@ -304,7 +316,7 @@ export default function Map3D() {
       setTimeout(() => g.zoomToFit(600, 60), 700);
       setStats({ nodes: data.nodes.length, imports: data.links.filter(l => l.kind === "import").length, root });
       setLegend([...data.clusters.entries()].sort((a, b) => a[0].localeCompare(b[0])));
-      setMission(loadMission(root));
+      setMission(m);
       st.hidden = new Set();
       setHidden(new Set());
     };
@@ -314,6 +326,8 @@ export default function Map3D() {
     // after load (common in a parent-of-repos), nothing re-scans automatically.
     // The ⟳ button in the HUD emits this to force a fresh scan of the same root.
     const offRefresh = bus.on("map-refresh", () => load(projectRoot));
+    // Keep cluster descriptions current when the mission is edited in-app.
+    const offMission = bus.on("mission", m => { st.mission = m; setMission({ ...m }); });
 
     const ro = new ResizeObserver(() => { g.width(el.clientWidth); g.height(el.clientHeight); });
     ro.observe(el);
@@ -325,7 +339,7 @@ export default function Map3D() {
     window.addEventListener("keyup", onKey);
     el.addEventListener("mousedown", onMouse, true);
     el.addEventListener("mousemove", onMouse, true);
-    return () => { off(); offRefresh(); ro.disconnect(); g._destructor?.();
+    return () => { live = false; off(); offRefresh(); offMission(); ro.disconnect(); g._destructor?.();
       window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKey);
       el.removeEventListener("mousedown", onMouse, true);
       el.removeEventListener("mousemove", onMouse, true);

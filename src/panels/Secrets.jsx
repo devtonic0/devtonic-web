@@ -1,126 +1,25 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { projectRoot, bus, loadMission } from "../store.js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { projectRoot, bus, loadMissionAsync } from "../store.js";
 import { copyText, reloadApp } from "../platform/web.js";
+import { detectSections, readVars, writeVar, deleteVar, mask } from "./secrets-model.js";
 
 // Secrets: env files grouped into sections (frontend/backend/etc).
 // Auto-scans the project recursively for any .env* file (bounded — ignores
 // node_modules etc). Values masked by default; click to reveal, copy, edit, delete.
+// All file IO is async (fs.promises) — see secrets-model.js.
 const fs = window.require("fs");
 const path = window.require("path");
 const os = window.require("os");
+const fsp = () => fs.promises;
 
-// Directories we never descend into (huge, no user env files worth reading).
-const IGNORE_DIRS = new Set([
-  "node_modules", ".git", ".next", ".turbo", "dist", "build", "out",
-  ".venv", "venv", "__pycache__", ".cache", "coverage", ".pnpm-store",
-  "target", ".yarn", ".nuxt", ".output", ".svelte-kit", ".astro",
-  ".terraform", "release", "linux-unpacked",
-]);
-
-// Recognize files a dev would actually put env vars in.
-function isEnvFile(name) {
-  return /^\.env(\..+)?$/.test(name) || name === "env" || name === ".envrc";
-}
-
-// Depth-limited recursive walk. Returns absolute paths.
-function findEnvFiles(root, maxDepth = 6, maxFiles = 40) {
-  const out = [];
-  function walk(dir, depth) {
-    if (depth > maxDepth || out.length >= maxFiles) return;
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch { return; }
-    for (const e of entries) {
-      if (out.length >= maxFiles) return;
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) {
-        if (IGNORE_DIRS.has(e.name)) continue;
-        if (e.name.startsWith(".") && e.name !== ".env.d" && e.name !== ".config") {
-          // Skip dot dirs except an env dir we might want.
-          continue;
-        }
-        walk(full, depth + 1);
-      } else if (isEnvFile(e.name)) {
-        out.push(full);
-      }
-    }
-  }
-  walk(root, 0);
-  return out;
-}
-
-function detectSections(root) {
-  const mission = loadMission(root);
-  if (mission.secrets?.length) {
-    return mission.secrets.map(s => ({
-      name: s.name,
-      file: path.isAbsolute(s.file) ? s.file : path.join(root, s.file),
-    }));
-  }
-  const seen = new Set();
-  const out = [];
-  const push = (file, name) => {
-    if (seen.has(file)) return;
-    seen.add(file);
-    out.push({ file, name });
-  };
-  // Always-visible project defaults, created lazily on first add.
-  push(path.join(root, ".env"), `${path.basename(root)} · .env`);
-  push(path.join(root, ".env.local"), `${path.basename(root)} · .env.local`);
-  // Everything else we can actually find, recursively.
-  for (const file of findEnvFiles(root)) {
-    const rel = path.relative(root, file);
-    const parts = rel.split(path.sep);
-    const label = parts.length === 1
-      ? `${path.basename(root)} · ${rel}`
-      : `${parts.slice(0, -1).join("/")} · ${parts[parts.length - 1]}`;
-    push(file, label);
-  }
-  push(path.join(os.homedir(), ".hermes", ".env"), "hermes · global");
-  return out;
-}
-
-const parse = text => text.split("\n").map((line, i) => {
-  const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-  return m ? { key: m[1], value: m[2].replace(/^["']|["']$/g, ""), line: i } : null;
-}).filter(Boolean);
-
-const mask = v => (v.length <= 6 ? "•".repeat(v.length) : v.slice(0, 3) + "•".repeat(Math.min(v.length - 5, 18)) + v.slice(-2));
-
-// Rewrite a single key's value in an env file, preserving all other lines.
-// If the key doesn't exist, appends it. Escapes values containing whitespace/#
-// with double quotes for shell-safe re-parse.
-function writeVar(file, key, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const needsQuote = /[\s#"'`$]/.test(value);
-  const escaped = needsQuote ? `"${value.replace(/(["\\$`])/g, "\\$1")}"` : value;
-  const lines = existing.split("\n");
-  let found = false;
-  const out = lines.map(line => {
-    const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
-    if (m && m[2] === key) { found = true; return `${m[1]}${m[2]}=${escaped}`; }
-    return line;
-  });
-  if (!found) {
-    if (out.length && out[out.length - 1] !== "") out.push("");
-    out.push(`${key}=${escaped}`);
-  }
-  fs.writeFileSync(file, out.join("\n"));
-  try { fs.chmodSync(file, 0o600); } catch { /* ignore */ }
-}
-
-function deleteVar(file, key) {
-  if (!fs.existsSync(file)) return;
-  const lines = fs.readFileSync(file, "utf8").split("\n").filter(line => {
-    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
-    return !m || m[1] !== key;
-  });
-  fs.writeFileSync(file, lines.join("\n"));
+async function scan(root) {
+  const mission = await loadMissionAsync(root);
+  return detectSections(fsp(), path, root, { mission, homedir: os.homedir() });
 }
 
 export default function Secrets() {
-  const [sections, setSections] = useState(() => detectSections(projectRoot));
+  const [sections, setSections] = useState([]);
+  const [scanned, setScanned] = useState(false);
   const [active, setActive] = useState(0);
   const [vars, setVars] = useState([]);
   const [revealed, setRevealed] = useState(new Set());
@@ -129,34 +28,40 @@ export default function Secrets() {
   const [newVal, setNewVal] = useState("");
   const [edit, setEdit] = useState(null); // { key, value }
   const [dirty, setDirty] = useState(false); // any write since panel opened → offer restart
+  const seq = useRef(0);
 
-  const load = useCallback((secs = sections, idx = active) => {
-    const s = secs[idx];
-    if (!s) { setVars([]); return; }
-    try { setVars(fs.existsSync(s.file) ? parse(fs.readFileSync(s.file, "utf8")) : []); }
-    catch { setVars([]); }
+  // Rescan sections; `pick(secs)` chooses the active index. Out-of-order
+  // results (fast project switches) are dropped.
+  const rescanWith = useCallback(async (root, pick) => {
+    const my = ++seq.current;
+    const secs = await scan(root).catch(() => []);
+    if (my !== seq.current) return;
+    setSections(secs);
+    setScanned(true);
+    setActive(pick(secs));
+  }, []);
+
+  const load = useCallback(async (s = sections[active]) => {
     setRevealed(new Set());
     setEdit(null);
+    if (!s) { setVars([]); return; }
+    try { setVars(await readVars(fsp(), s.file)); }
+    catch { setVars([]); }
   }, [sections, active]);
 
+  useEffect(() => { rescanWith(projectRoot, () => 0); }, [rescanWith]);
+
   useEffect(() => bus.on("project", root => {
-    const secs = detectSections(root);
-    setSections(secs);
-    setActive(0);
-    load(secs, 0);
     setDirty(false);
-  }), [load]);
+    rescanWith(root, () => 0);
+  }), [rescanWith]);
 
   // Rescan when Chat writes new env vars (e.g. modal just created <root>/.env).
   useEffect(() => bus.on("env-updated", ({ file }) => {
-    const secs = detectSections(projectRoot);
-    const idx = Math.max(0, secs.findIndex(s => s.file === file));
-    setSections(secs);
-    setActive(idx);
-    load(secs, idx);
-  }), [load]);
+    rescanWith(projectRoot, secs => Math.max(0, secs.findIndex(s => s.file === file)));
+  }), [rescanWith]);
 
-  useEffect(() => { load(); }, [active, load]);
+  useEffect(() => { load(); }, [load]);
 
   function copy(v, key) {
     copyText(v);
@@ -164,40 +69,41 @@ export default function Secrets() {
     setTimeout(() => setCopied(""), 1200);
   }
 
-  function saveEdit() {
+  // After a write: mark the file as existing and reload its vars.
+  async function afterWrite(s, reason) {
+    setDirty(true);
+    bus.emit("config-dirty", { reason });
+    if (!s.exists) setSections(secs => secs.map(x => (x.file === s.file ? { ...x, exists: true } : x)));
+    await load({ ...s, exists: true });
+  }
+
+  async function saveEdit() {
     const s = sections[active];
     if (!s || !edit) return;
-    writeVar(s.file, edit.key, edit.value);
-    setEdit(null);
-    setDirty(true);
-    bus.emit("config-dirty", { reason: `secret ${edit.key} updated in ${path.basename(s.file)}` });
-    load();
+    const { key, value } = edit;
+    await writeVar(fsp(), path, s.file, key, value);
+    await afterWrite(s, `secret ${key} updated in ${path.basename(s.file)}`);
   }
 
-  function addVar() {
+  async function addVar() {
     const s = sections[active];
-    if (!s || !newKey.trim()) return;
-    writeVar(s.file, newKey.trim(), newVal);
+    const key = newKey.trim();
+    if (!s || !key) return;
+    await writeVar(fsp(), path, s.file, key, newVal);
     setNewKey(""); setNewVal("");
-    setDirty(true);
-    bus.emit("config-dirty", { reason: `new secret ${newKey.trim()} added` });
-    load();
+    await afterWrite(s, `new secret ${key} added`);
   }
 
-  function delVar(key) {
+  async function delVar(key) {
     const s = sections[active];
     if (!s) return;
     if (!confirm(`Delete ${key} from ${path.basename(s.file)}?`)) return;
-    deleteVar(s.file, key);
-    setDirty(true);
-    bus.emit("config-dirty", { reason: `secret ${key} removed` });
-    load();
+    await deleteVar(fsp(), s.file, key);
+    await afterWrite(s, `secret ${key} removed`);
   }
 
   function rescan() {
-    const secs = detectSections(projectRoot);
-    setSections(secs);
-    setActive(Math.min(active, secs.length - 1));
+    rescanWith(projectRoot, secs => Math.max(0, Math.min(active, secs.length - 1)));
   }
 
   const s = sections[active];
@@ -224,12 +130,13 @@ export default function Secrets() {
         </div>
       )}
       <div className="secrets-scroll">
-        {!s && <div className="empty-hint">No env files found — create .env / .env.local in the project, or define `secrets` in devtonic.config.json.</div>}
+        {!scanned && <div className="empty-hint">scanning…</div>}
+        {scanned && !s && <div className="empty-hint">No env files found — create .env / .env.local in the project, or define `secrets` in devtonic.config.json.</div>}
         {s && (
           <>
             <div className="secrets-path">
               {s.file}
-              {!fs.existsSync(s.file) && <span className="secrets-new"> · will be created on first add</span>}
+              {!s.exists && <span className="secrets-new"> · will be created on first add</span>}
             </div>
             {vars.length === 0 && (
               <div className="cfg-hint" style={{ marginBottom: 10 }}>

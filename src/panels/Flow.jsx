@@ -1,21 +1,19 @@
-import React, { useEffect, useState } from "react";
-import { loadMission, saveMission, bus } from "../store.js";
+import React, { useState } from "react";
+import { saveMissionAsync } from "../store.js";
+import { useMission } from "./use-mission.js";
 
 const NEXT = { pending: "active", active: "done", done: "pending" };
 
 export default function Flow() {
-  const [mission, setMission] = useState(loadMission);
+  const [mission, setMission] = useMission();
   const [name, setName] = useState("");
 
-  useEffect(() => bus.on("project", () => setMission(loadMission())), []);
-  useEffect(() => bus.on("mission", m => setMission({ ...m })), []);
-
-  const phases = mission.phases ?? [];
+  const phases = mission?.phases ?? [];
 
   function update(next) {
     const m = { ...mission, phases: next };
     setMission(m);
-    saveMission(m);
+    saveMissionAsync(m).catch(() => {});
   }
 
   function add() {
@@ -24,6 +22,8 @@ export default function Flow() {
     update([...phases, { id: crypto.randomUUID(), name: n, status: "pending" }]);
     setName("");
   }
+
+  if (!mission) return <div className="panel-body"><div className="empty-hint">loading…</div></div>;
 
   return (
     <div className="panel-body">
