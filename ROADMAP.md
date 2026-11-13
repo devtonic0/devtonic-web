@@ -15,7 +15,8 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [ ] ESLint + Prettier config and CI step
 - [x] Unit tests for `store.js` config IO and `routing.js` tier selection (also fixes the config watcher, which never fired in the browser shim) ([#9](https://github.com/devtonic0/devtonic-web/pull/9))
 - [ ] Playwright smoke test: boot server, load UI, assert each default panel renders without console errors
-- [ ] Async fs migration: add `fs.promises` to shim and convert panels off sync XHR
+- [x] Async fs migration (first slice): add `fs.promises` to shim; async `fs.watch`; convert polling panels Tasks, Usage, Workers off sync XHR ([#10](https://github.com/devtonic0/devtonic-web/pull/10))
+  - [ ] Convert remaining panels (Hermes chat log tail, Notes, Config, Progress, Code file tree) to `fs.promises`
 
 ## Phase 3: Agent integration
 - [ ] Structured streaming chat via devtonic-agent's API (replace log tailing)

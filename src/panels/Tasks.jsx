@@ -14,8 +14,9 @@ const OUT_DIR = path.join(os.homedir(), ".hermes", "cron", "output");
 
 const AGENT_RE = /hermes.*(?:--cli|-z |chat|--continue)|cron_run|delegated_task/i;
 
-function loadJobs() {
-  try { return JSON.parse(fs.readFileSync(JOBS_PATH, "utf8")).jobs ?? []; }
+// Polled every 4 s, so read via fs.promises (fetch) instead of sync XHR.
+async function loadJobs() {
+  try { return JSON.parse(await fs.promises.readFile(JOBS_PATH, "utf8")).jobs ?? []; }
   catch { return []; }
 }
 
@@ -46,7 +47,7 @@ const rel = ts => {
 };
 
 export default function Tasks() {
-  const [jobs, setJobs] = useState(loadJobs);
+  const [jobs, setJobs] = useState([]);
   const [running, setRunning] = useState([]);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
@@ -54,7 +55,7 @@ export default function Tasks() {
   const [tab, setTab] = useState("all"); // all|scheduled|running
 
   const refresh = useCallback(() => {
-    setJobs(loadJobs());
+    loadJobs().then(setJobs);
     fetchRunning(setRunning);
   }, []);
   useEffect(() => {

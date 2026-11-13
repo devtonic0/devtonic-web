@@ -61,9 +61,10 @@ export default function Usage() {
   const [rateBusy, setRateBusy] = useState("");
   const [rateMsg, setRateMsg] = useState("");
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     let text = "";
-    try { text = fs.readFileSync(LOG, "utf8"); } catch { return; }
+    // The agent log can be large; fetch it async so the 30 s poll never blocks the UI.
+    try { text = await fs.promises.readFile(LOG, "utf8"); } catch { return; }
     const byDay = parseLog(text);
     const rows = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14).map(([day, models]) => {
       let dayCost = 0, tin = 0, tout = 0, calls = 0;
