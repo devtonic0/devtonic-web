@@ -11,6 +11,7 @@ const path = window.require("path");
 const fs = window.require("fs");
 
 const AGENT_LOG = path.join(os.homedir(), ".hermes", "logs", "agent.log");
+const exists = p => fs.promises.access(p).then(() => true, () => false);
 
 const SETUP_PROMPT = (root) => `You are setting up Devtonic Mission Control for an existing project.
 
@@ -47,8 +48,13 @@ export default function Autosetup({ root, onDone, onCancel }) {
   const procRef = useRef(null);
   const tailRef = useRef(null);
 
-  const hasExisting = fs.existsSync(path.join(root, "devtonic.config.json"))
-                    || fs.existsSync(path.join(root, ".hermes", "mission.json"));
+  const [hasExisting, setHasExisting] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.all([path.join(root, "devtonic.config.json"), path.join(root, ".hermes", "mission.json")].map(exists))
+      .then(([a, b]) => { if (live) setHasExisting(a || b); });
+    return () => { live = false; };
+  }, [root]);
 
   useEffect(() => () => { procRef.current?.kill("SIGINT"); tailRef.current?.kill(); }, []);
 
@@ -77,7 +83,7 @@ export default function Autosetup({ root, onDone, onCancel }) {
     procRef.current = proc;
     proc.stdout.on("data", d => (out += d.toString()));
     proc.stderr.on("data", d => (err += d.toString()));
-    proc.on("close", code => {
+    proc.on("close", async code => {
       tail.kill();
       procRef.current = null;
       tailRef.current = null;
@@ -86,8 +92,8 @@ export default function Autosetup({ root, onDone, onCancel }) {
       try {
         const nu = path.join(root, "devtonic.config.json");
         const legacy = path.join(root, ".hermes", "mission.json");
-        const file = fs.existsSync(nu) ? nu : legacy;
-        const m = JSON.parse(fs.readFileSync(file, "utf8"));
+        const file = (await exists(nu)) ? nu : legacy;
+        const m = JSON.parse(await fs.promises.readFile(file, "utf8"));
         if (m.features || m.architecture || m.clusterInfo) return setStatus("done");
       } catch {}
       setStatus(code === 0 && /SETUP DONE/.test(out) ? "done" : "error");
@@ -98,13 +104,19 @@ export default function Autosetup({ root, onDone, onCancel }) {
     });
   }
 
-  function skip() {
+  async function skip() {
     // write minimal stub so we don't re-prompt every time the folder opens
-    fs.mkdirSync(path.join(root, ".hermes"), { recursive: true });
-    fs.writeFileSync(path.join(root, ".hermes", "mission.json"), JSON.stringify({
-      notes: `# ${path.basename(root)}\n\nAuto-setup skipped. Ask Hermes in chat to populate this file when ready.`,
-      todos: [], phases: [{ id: "p1", name: "Explore", status: "active" }], features: [],
-    }, null, 2));
+    try {
+      await fs.promises.mkdir(path.join(root, ".hermes"), { recursive: true });
+      await fs.promises.writeFile(path.join(root, ".hermes", "mission.json"), JSON.stringify({
+        notes: `# ${path.basename(root)}\n\nAuto-setup skipped. Ask Hermes in chat to populate this file when ready.`,
+        todos: [], phases: [{ id: "p1", name: "Explore", status: "active" }], features: [],
+      }, null, 2));
+    } catch (e) {
+      setStatus("error");
+      setOutput(`⚠️ Could not write mission stub: ${e.message}`);
+      return;
+    }
     onDone();
   }
 

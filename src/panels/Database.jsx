@@ -6,11 +6,10 @@ import { projectRoot, bus } from "../store.js";
 const fs = window.require("fs");
 const path = window.require("path");
 
-function findCreds(root) {
+async function findCreds(root) {
   for (const rel of [".env.local", ".env", "backend/.env", "api/.env"]) {
-    const p = path.join(root, rel);
-    if (!fs.existsSync(p)) continue;
-    const text = fs.readFileSync(p, "utf8");
+    let text;
+    try { text = await fs.promises.readFile(path.join(root, rel), "utf8"); } catch { continue; }
     const url = text.match(/^(?:NEXT_PUBLIC_)?SUPABASE_URL\s*=\s*["']?([^"'\n]+)/m)?.[1];
     const key = text.match(/^SUPABASE_(?:SERVICE_ROLE_KEY|SERVICE_KEY|SECRET(?:_KEY)?)\s*=\s*["']?([^"'\n]+)/m)?.[1]
       ?? text.match(/^(?:NEXT_PUBLIC_)?SUPABASE_ANON_KEY\s*=\s*["']?([^"'\n]+)/m)?.[1];
@@ -39,7 +38,8 @@ async function rest(creds, pathname, opts = {}) {
 const PAGE = 50;
 
 export default function Database() {
-  const [creds, setCreds] = useState(() => findCreds(projectRoot));
+  const [root, setRoot] = useState(projectRoot);
+  const [creds, setCreds] = useState(null);
   const [tables, setTables] = useState([]);
   const [table, setTable] = useState(null);
   const [rows, setRows] = useState([]);
@@ -50,10 +50,18 @@ export default function Database() {
   const [insertJson, setInsertJson] = useState("");
   const [showInsert, setShowInsert] = useState(false);
 
-  useEffect(() => bus.on("project", root => {
-    setCreds(findCreds(root));
+  useEffect(() => bus.on("project", next => {
+    setRoot(next);
     setTables([]); setTable(null); setRows([]); setError("");
   }), []);
+
+  // Credential lookup is async; a result for a project we've since left is dropped.
+  useEffect(() => {
+    let live = true;
+    setCreds(null);
+    findCreds(root).then(c => { if (live) setCreds(c); }, () => {});
+    return () => { live = false; };
+  }, [root]);
 
   // discover tables from the OpenAPI root
   useEffect(() => {

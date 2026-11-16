@@ -56,7 +56,7 @@ marked.setOptions({ breaks: true });
 async function loadProjectEnv(root) {
   const out = {};
   if (!root) return out;
-  const targets = detectEnvTargets(root).filter(t => t.scope === "project" && t.exists);
+  const targets = (await detectEnvTargets(root)).filter(t => t.scope === "project" && t.exists);
   const texts = await Promise.all(targets.map(t => fs.promises.readFile(t.file, "utf8").catch(() => null)));
   for (const txt of texts) {
     if (txt == null) continue;
@@ -70,6 +70,14 @@ async function loadProjectEnv(root) {
     }
   }
   return out;
+}
+
+// Which of `names` aren't set in any env file for the current project
+// (project candidates + global ~/.hermes/.env). Names only, never values.
+async function unsetEnvNames(names) {
+  if (!names.length) return [];
+  const files = (await detectEnvTargets(projectRoot)).map(t => t.file);
+  return filterUnset(names, files);
 }
 
 // Session-aware log distiller. Lines carry [SESSION_ID]; we lock onto ours
@@ -504,12 +512,11 @@ export default function Chat() {
       // If we detected missing env vars during the turn, ask the user for them.
       // Names only — values will be pasted straight into a .env file (project
       // by default, or global if the user picks that in the modal).
-      const allEnvFiles = detectEnvTargets(projectRoot).map(t => t.file);
-      const detected = filterUnset([...missingEnvRef.current], allEnvFiles);
-      console.log("[env-prompt] raw detected:", [...missingEnvRef.current],
-                  "→ after filterUnset:", detected);
-      if (detected.length) {
-        setEnvPrompt({ names: detected });
+      const raw = [...missingEnvRef.current];
+      if (raw.length) {
+        unsetEnvNames(raw).then(detected => {
+          if (detected.length) setEnvPrompt({ names: detected });
+        });
       }
     });
     proc.on("error", e => {
@@ -593,10 +600,8 @@ export default function Chat() {
         <button
           className="tb-btn"
           title="Add / edit environment variables for this project (never sent to the LLM)"
-          onClick={() => {
-            const allEnvFiles = detectEnvTargets(projectRoot).map(t => t.file);
-            const detected = filterUnset([...missingEnvRef.current], allEnvFiles);
-            setEnvPrompt({ names: detected });
+          onClick={async () => {
+            setEnvPrompt({ names: await unsetEnvNames([...missingEnvRef.current]) });
           }}
         >🔑 env</button>
       </div>

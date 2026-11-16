@@ -38,12 +38,20 @@ export default function Workspace() {
     setBusy(true);
     const stamp = new Date().toISOString().slice(0, 10);
     const out = path.join(dir, `devtonic-workspace-${stamp}.tar.gz`);
-    const include = PARTS.filter(p => selected.has(p.key) && fs.existsSync(path.join(HOME, p.path))).map(p => p.path);
+    const exists = p => fs.promises.access(p).then(() => true, () => false);
+    const present = await Promise.all(PARTS.map(p => selected.has(p.key) && exists(path.join(HOME, p.path))));
+    const include = PARTS.filter((_, i) => present[i]).map(p => p.path);
     // also carry the current project's mission state
     const missionRel = path.relative(HOME, path.join(projectRoot, ".hermes"));
-    if (!missionRel.startsWith("..") && fs.existsSync(path.join(projectRoot, ".hermes"))) include.push(missionRel);
+    if (!missionRel.startsWith("..") && await exists(path.join(projectRoot, ".hermes"))) include.push(missionRel);
     const manifest = { created: new Date().toISOString(), host: os.hostname(), parts: [...selected], version: 1 };
-    fs.writeFileSync(path.join(HOME, ".devtonic-manifest.json"), JSON.stringify(manifest, null, 2));
+    try {
+      await fs.promises.writeFile(path.join(HOME, ".devtonic-manifest.json"), JSON.stringify(manifest, null, 2));
+    } catch (e) {
+      setBusy(false);
+      setLog(`⚠️ ${e.message}`);
+      return;
+    }
     include.push(".devtonic-manifest.json");
     execFile("tar", ["czf", out, "-C", HOME, ...include], { maxBuffer: 1e6 }, (err, _o, errOut) => {
       setBusy(false);

@@ -184,10 +184,13 @@ export default function Code() {
     p.on("error", () => setAiBusy(false));
   }
 
-  function checkProblems() {
+  async function checkProblems() {
     setProbBusy(true); setProblems([]);
     const found = [];
     let toolsRun = 0;
+    const has = rel => fsn.promises.access(root + rel).then(() => true, () => false);
+    const [hasTs, hasEslint, hasPkg, hasTsc] = await Promise.all(
+      ["/tsconfig.json", "/node_modules/.bin/eslint", "/package.json", "/node_modules/.bin/tsc"].map(has));
     const finish = () => {
       setProbBusy(false);
       if (!toolsRun) {
@@ -199,9 +202,6 @@ export default function Code() {
         setProblems([...found]);
       }
     };
-    const hasTs = fsn.existsSync(root + "/tsconfig.json");
-    const hasEslint = fsn.existsSync(root + "/node_modules/.bin/eslint");
-    const hasPkg = fsn.existsSync(root + "/package.json");
     const runEslint = () => {
       if (!hasEslint) return finish();
       toolsRun++;
@@ -224,7 +224,7 @@ export default function Code() {
     };
     if (hasTs) {
       toolsRun++;
-      const tsc = fsn.existsSync(root + "/node_modules/.bin/tsc") ? root + "/node_modules/.bin/tsc" : "npx";
+      const tsc = hasTsc ? root + "/node_modules/.bin/tsc" : "npx";
       const args = tsc === "npx" ? ["tsc", "--noEmit", "--pretty", "false"] : ["--noEmit", "--pretty", "false"];
       execFile(tsc, args, { cwd: root, maxBuffer: 8e6, timeout: 60000, env: EXEC_ENV }, (_e, out) => {
         for (const line of (out || "").split("\n")) {
@@ -256,12 +256,14 @@ export default function Code() {
   async function fixWithAi(p) {
     if (!p) return;
     const full = root + "/" + p.file;
-    const src = fsn.readFileSync(full, "utf8");
+    let src;
+    try { src = await fsn.promises.readFile(full, "utf8"); }
+    catch (e) { setAiStatus(`⚠️ ${e.message.slice(0, 120)}`); return; }
     setAiStatus(`✨ fixing ${p.file}:${p.line}…`);
     try {
       const fixed = await fixProblem({ path: full, content: src, problem: p });
       if (!fixed || fixed === src) { setAiStatus("no changes suggested"); return; }
-      fsn.writeFileSync(full, fixed);
+      await fsn.promises.writeFile(full, fixed);
       if (sel === full) { setContent(fixed); setSavedContent(fixed); }
       setAiStatus(`✓ patched ${p.file}`);
       setTimeout(() => checkProblems(), 400);   // re-run to see if it's gone
