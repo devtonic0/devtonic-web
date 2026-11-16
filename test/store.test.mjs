@@ -8,26 +8,36 @@ const env = await loadStoreEnv();
 const { store } = env;
 after(env.cleanup);
 
-test("loadSettings returns {} when the settings file is missing or corrupt", () => {
+test("loadSettings returns {} when the settings file is missing or corrupt", async () => {
   assert.deepEqual(store.loadSettings(), {});
   fs.writeFileSync(env.settingsFile, "{not json");
+  assert.deepEqual(await store.reloadSettings(), {});
   assert.deepEqual(store.loadSettings(), {});
   fs.rmSync(env.settingsFile);
 });
 
-test("saveSettings shallow-merges patches into the file", () => {
+test("saveSettings merges into memory now and the file in the background", async () => {
   store.saveSettings({ a: 1, nested: { x: 1 } });
   store.saveSettings({ b: 2, nested: { y: 2 } });
-  assert.deepEqual(env.readSettings(), { a: 1, b: 2, nested: { y: 2 } });
-  assert.deepEqual(store.loadSettings(), env.readSettings());
+  assert.deepEqual(store.loadSettings(), { a: 1, b: 2, nested: { y: 2 } }, "visible synchronously");
+  assert.deepEqual(await env.readSettings(), { a: 1, b: 2, nested: { y: 2 } });
+  assert.deepEqual(store.loadSettings(), await env.readSettings());
+});
+
+test("reloadSettings picks up external edits to the file", async () => {
+  fs.writeFileSync(env.settingsFile, JSON.stringify({ external: true }));
+  assert.equal(store.loadSettings().external, undefined, "reads come from memory");
+  assert.deepEqual(await store.reloadSettings(), { external: true });
+  assert.equal(store.loadSettings().external, true);
   fs.rmSync(env.settingsFile);
+  await store.reloadSettings();
 });
 
 test("projectRoot defaults to the home directory", () => {
   assert.equal(store.projectRoot, env.home);
 });
 
-test("setProject persists lastProject, dedupes recents (max 8), emits and watches the config file", () => {
+test("setProject persists lastProject, dedupes recents (max 8), emits and watches the config file", async () => {
   const seen = [];
   const off = store.bus.on("project", r => seen.push(r));
   const roots = Array.from({ length: 10 }, (_, i) => env.project(`p${i}`));
@@ -35,7 +45,7 @@ test("setProject persists lastProject, dedupes recents (max 8), emits and watche
   store.setProject(roots[3]); // revisit moves it to the front
   off();
 
-  const s = env.readSettings();
+  const s = await env.readSettings();
   assert.equal(s.lastProject, roots[3]);
   assert.equal(store.projectRoot, roots[3]);
   assert.equal(s.recentProjects.length, 8);

@@ -30,12 +30,14 @@ export async function loadStoreEnv() {
     routing,
     watches,
     settingsFile,
-    readSettings: () => JSON.parse(fs.readFileSync(settingsFile, "utf8")),
-    writeSettings: obj => fs.writeFileSync(settingsFile, JSON.stringify(obj)),
+    // Settings persist asynchronously: wait for pending writes before reading.
+    readSettings: async () => { await store.flushSettings(); return JSON.parse(fs.readFileSync(settingsFile, "utf8")); },
+    writeSettings: async obj => { await store.flushSettings(); fs.writeFileSync(settingsFile, JSON.stringify(obj)); await store.reloadSettings(); },
     project(name = "proj") {
       const dir = fs.mkdtempSync(path.join(home, `${name}-`));
       return dir;
     },
-    cleanup: () => fs.rmSync(home, { recursive: true, force: true }),
+    // Let in-flight settings writes land before removing their directory.
+    cleanup: async () => { await store.flushSettings(); fs.rmSync(home, { recursive: true, force: true }); },
   };
 }

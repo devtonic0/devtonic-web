@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { projectRoot } from "../store.js";
+import { projectRoot, reloadSettings } from "../store.js";
 import { pickFolder, pickFile } from "../platform/web.js";
 
 // Workspace image: export the full Hermes identity + app state as a portable
@@ -60,6 +60,9 @@ export default function Workspace() {
     execFile("tar", ["czf", backup, "-C", HOME, ".hermes"], () => {
       execFile("tar", ["xzf", file, "-C", HOME], { maxBuffer: 1e6 }, (err, _o, errOut) => {
         setBusy(false);
+        // The image may carry app settings: drop the in-memory copy so a later
+        // save cannot overwrite the imported file with stale values.
+        if (!err) reloadSettings();
         setLog(err
           ? `⚠️ ${errOut || err.message}`
           : `✓ Workspace imported from:\n${file}\n\nPrevious ~/.hermes backed up to:\n${backup}\n\nRestart the app (and any running Hermes gateway) to pick everything up.`);
