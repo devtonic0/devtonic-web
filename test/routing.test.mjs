@@ -50,12 +50,12 @@ test("routeModel uses per-provider tier defaults once enabled", () => {
   assert.equal(routeModel("anthropic", "dflt", "nonexistent-tier"), "dflt");
 });
 
-test("routeModel prefers user overrides and setRouting merges patches", () => {
+test("routeModel prefers user overrides and setRouting merges patches", async () => {
   setRouting({ anthropic: { mid: "custom-mid" } });
   assert.equal(routeModel("anthropic", "dflt", "mid"), "custom-mid");
   assert.notEqual(routeModel("anthropic", "dflt", "top"), "dflt", "non-overridden tiers keep defaults");
   assert.equal(routingStatus().enabled, true, "earlier keys survive the patch");
-  assert.deepEqual(env.readSettings().modelRouting, { enabled: true, anthropic: { mid: "custom-mid" } });
+  assert.deepEqual((await env.readSettings()).modelRouting, { enabled: true, anthropic: { mid: "custom-mid" } });
 
   setRouting({ enabled: false });
   assert.equal(routeModel("anthropic", "dflt", "mid"), "dflt", "disabling ignores overrides");

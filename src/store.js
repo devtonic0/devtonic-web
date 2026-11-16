@@ -1,4 +1,5 @@
 // Tiny project store + event bus. mission.json lives in <project>/.hermes/.
+import { createSettingsStore } from "./platform/settings-model.js";
 const fs = window.require("fs");
 const path = window.require("path");
 const os = window.require("os");
@@ -17,13 +18,25 @@ export const bus = {
 
 const SETTINGS = path.join(os.homedir(), ".hermes-mission-control.json");
 
+// Settings are read once at boot (top-level await below) and then served from
+// memory; saves update memory synchronously and persist via fs.promises in the
+// background (see platform/settings-model.js). No sync XHR per read.
+const settings = createSettingsStore({
+  read: () => fs.promises.readFile(SETTINGS, "utf8"),
+  write: text => fs.promises.writeFile(SETTINGS, text),
+});
+await settings.prime();
+
 export function loadSettings() {
-  try { return JSON.parse(fs.readFileSync(SETTINGS, "utf8")); } catch { return {}; }
+  return settings.load();
 }
 export function saveSettings(patch) {
-  const cur = loadSettings();
-  fs.writeFileSync(SETTINGS, JSON.stringify({ ...cur, ...patch }, null, 2));
+  settings.save(patch);
 }
+/** Resolves once all saveSettings() calls so far are on disk. */
+export const flushSettings = () => settings.flush();
+/** Re-read the settings file from disk (e.g. after an external edit). */
+export const reloadSettings = () => settings.reload();
 
 export let projectRoot = loadSettings().lastProject ?? os.homedir();
 
