@@ -29,9 +29,15 @@ export default function EnvPromptModal({ names, onClose, onSaved }) {
   // Where to save. Default = first project target (existing project .env,
   // else <root>/.env-to-create). User can flip to any detected file including
   // global ~/.hermes/.env from the dropdown.
-  const [targets] = useState(() => detectEnvTargets(projectRoot));
+  const [targets, setTargets] = useState([]);
   const [targetIdx, setTargetIdx] = useState(0);
   const target = targets[targetIdx];
+
+  useEffect(() => {
+    let live = true;
+    detectEnvTargets(projectRoot).then(t => { if (live) setTargets(t); }, () => {});
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => { firstRef.current?.focus(); }, []);
 
@@ -61,7 +67,7 @@ export default function EnvPromptModal({ names, onClose, onSaved }) {
     });
   }
 
-  function save(retry) {
+  async function save(retry) {
     const filled = Object.fromEntries(
       Object.entries(values).filter(([, v]) => v && v.trim()));
     if (!Object.keys(filled).length) {
@@ -72,7 +78,7 @@ export default function EnvPromptModal({ names, onClose, onSaved }) {
     setSaving(true);
     setError("");
     try {
-      const { written, path: file } = saveEnvVars(filled, target.file);
+      const { written, path: file } = await saveEnvVars(filled, target.file);
       // NOTE: we deliberately pass names only — never the values.
       onSaved?.({ names: written, retry: !!retry, file, scope: target.scope });
     } catch (e) {

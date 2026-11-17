@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copyText, openExternal } from "../platform/web.js";
 import { listeningPorts as pidPorts, processStat as pidStat } from "../platform/procs.js";
 
@@ -25,9 +25,9 @@ const LOG_DIR = path.join(os.homedir(), ".hermes", "logs");
 // Everything else (grep, ls, one-off scripts) stays out.
 const DEV_RE = /(pnpm|npm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)|vite|next(\s+dev)?|nodemon|uvicorn|gunicorn|flask\s+run|rails\s+s|hypercorn|astro|remix|nuxt|tsx watch|ts-node-dev|deno\s+task|turbo run dev|expo\s+start|django-admin runserver|manage\.py runserver|serve\s|http-server|live-server|python\s+-m\s+http\.server/i;
 
-function readRegistry() {
+async function readRegistry() {
   try {
-    const raw = fs.readFileSync(REGISTRY, "utf8");
+    const raw = await fs.promises.readFile(REGISTRY, "utf8");
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
@@ -56,18 +56,24 @@ export default function Servers() {
   const [logOpen, setLogOpen] = useState(""); // session id whose log panel is open
   const [logText, setLogText] = useState("");
 
-  const refresh = useCallback(() => {
-    const entries = readRegistry();
+  // Each refresh bumps the generation; async results from an older refresh
+  // (registry read or per-pid probes) are dropped so rows can't be clobbered.
+  const genRef = useRef(0);
+  const refresh = useCallback(async () => {
+    const gen = ++genRef.current;
+    const entries = await readRegistry();
+    if (gen !== genRef.current) return;
     // hydrate each row asynchronously
     const hydrated = entries.map(e => ({ ...e, _alive: false, _ports: [], _stat: null }));
     setRows(hydrated);
+    const patch = (i, p) => { if (gen === genRef.current) setRows(r => r.map((row, j) => j === i ? { ...row, ...p } : row)); };
     entries.forEach((e, i) => {
       if (!e.pid) return;
       pidAlive(e.pid, alive => {
-        setRows(r => r.map((row, j) => j === i ? { ...row, _alive: alive } : row));
+        patch(i, { _alive: alive });
         if (alive) {
-          pidPorts(e.pid, ports => setRows(r => r.map((row, j) => j === i ? { ...row, _ports: ports } : row)));
-          pidStat(e.pid, stat => setRows(r => r.map((row, j) => j === i ? { ...row, _stat: stat } : row)));
+          pidPorts(e.pid, ports => patch(i, { _ports: ports }));
+          pidStat(e.pid, stat => patch(i, { _stat: stat }));
         }
       });
     });

@@ -2,11 +2,22 @@
 // upsert user-provided values into ~/.hermes/.env. Secrets never leave this
 // module — Chat.jsx only receives the list of KEY NAMES, and the modal writes
 // values straight to disk without ever handing them back to the LLM.
-const fs = window.require("fs");
-const path = window.require("path");
-const os = window.require("os");
+//
+// All file IO is async and goes through a Node-style `fs.promises` (the
+// shim's fetch-based one in the browser). Every IO function takes an optional
+// `{ fsp, home }` so node --test can drive it against real fs or the shim.
+import path from "path-browserify";
 
-export const HERMES_ENV_PATH = path.join(os.homedir(), ".hermes", ".env");
+function platform() {
+  const req = typeof window !== "undefined" ? window.require : null;
+  return req ? { fsp: req("fs").promises, home: req("os").homedir() } : {};
+}
+
+/** Global Hermes env file: <home>/.hermes/.env. */
+export const hermesEnvPath = (home = platform().home) => path.join(home, ".hermes", ".env");
+
+// Uses only access(): part of Node's fs/promises and allow-listed by the bridge.
+const exists = (fsp, p) => fsp.access(p).then(() => true, () => false);
 
 // Candidate project env files, in preferred write order. First match that
 // EXISTS is the default target; if none exist we suggest creating <root>/.env.
@@ -24,25 +35,21 @@ const PROJECT_CANDIDATES = [
  * else <root>/.env as a to-be-created file). Global ~/.hermes/.env is
  * always last so the user has to opt into shared/global keys explicitly.
  */
-export function detectEnvTargets(projectRoot) {
+export async function detectEnvTargets(projectRoot, { fsp = platform().fsp, home = platform().home } = {}) {
   const out = [];
-  const seen = new Set();
-  const push = (file, label, scope) => {
-    if (seen.has(file)) return;
-    seen.add(file);
-    out.push({ file, label, scope, exists: fs.existsSync(file) });
-  };
+  const has = file => out.some(t => t.file === file);
   if (projectRoot) {
-    for (const rel of PROJECT_CANDIDATES) {
-      const abs = path.join(projectRoot, rel);
-      if (fs.existsSync(abs)) push(abs, `${path.basename(projectRoot)} · ${rel}`, "project");
-    }
+    const found = await Promise.all(PROJECT_CANDIDATES.map(rel => exists(fsp, path.join(projectRoot, rel))));
+    PROJECT_CANDIDATES.forEach((rel, i) => {
+      if (found[i]) out.push({ file: path.join(projectRoot, rel), label: `${path.basename(projectRoot)} · ${rel}`, scope: "project", exists: true });
+    });
     // Always include a "create <root>/.env" fallback so brand-new projects
     // have somewhere obvious to land.
     const fallback = path.join(projectRoot, ".env");
-    if (!seen.has(fallback)) push(fallback, `${path.basename(projectRoot)} · .env (create)`, "project");
+    if (!has(fallback)) out.push({ file: fallback, label: `${path.basename(projectRoot)} · .env (create)`, scope: "project", exists: false });
   }
-  push(HERMES_ENV_PATH, "hermes · ~/.hermes/.env (global)", "global");
+  const global = hermesEnvPath(home);
+  if (!has(global)) out.push({ file: global, label: "hermes · ~/.hermes/.env (global)", scope: "global", exists: await exists(fsp, global) });
   return out;
 }
 
@@ -135,8 +142,9 @@ export function detectMissingEnvVars(text) {
  * complaining precisely because the value in shell env is wrong/stale.
  * "Set but empty" counts as unset.
  */
-export function filterUnset(names, envPaths = [HERMES_ENV_PATH]) {
-  const disks = envPaths.map(p => readEnvFile(p));
+export async function filterUnset(names, envPaths, { fsp = platform().fsp, home = platform().home } = {}) {
+  const files = envPaths ?? [hermesEnvPath(home)];
+  const disks = await Promise.all(files.map(p => readEnvFile(fsp, p)));
   return names.filter(n => {
     for (const d of disks) {
       if (d[n] && String(d[n]).trim()) return false;
@@ -145,29 +153,32 @@ export function filterUnset(names, envPaths = [HERMES_ENV_PATH]) {
   });
 }
 
-function readEnvFile(envPath) {
-  try {
-    const t = fs.readFileSync(envPath, "utf8");
-    const out = {};
-    for (const line of t.split("\n")) {
-      const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
-    }
-    return out;
-  } catch { return {}; }
+/** Parse KEY=VALUE lines (optional `export`, surrounding quotes stripped). */
+export function parseEnvText(t) {
+  const out = {};
+  for (const line of String(t).split("\n")) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
+async function readEnvFile(fsp, envPath) {
+  try { return parseEnvText(await fsp.readFile(envPath, "utf8")); } catch { return {}; }
 }
 
 /**
  * Upsert key=value pairs into `envPath` (defaults to ~/.hermes/.env).
  * Existing keys are updated in place; new keys are appended. File is created
  * (with parent dir) if missing. Values with special chars get double-quoted.
- * Returns { written: [names], path }.
+ * Resolves to { written: [names], path }.
  */
-export function saveEnvVars(pairs, envPath = HERMES_ENV_PATH) {
+export async function saveEnvVars(pairs, envPath, { fsp = platform().fsp, home = platform().home } = {}) {
+  envPath ??= hermesEnvPath(home);
   const dir = path.dirname(envPath);
-  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  try { await fsp.mkdir(dir, { recursive: true }); } catch { /* ignore */ }
   let text = "";
-  try { text = fs.readFileSync(envPath, "utf8"); } catch { text = ""; }
+  try { text = await fsp.readFile(envPath, "utf8"); } catch { text = ""; }
   const lines = text.split("\n");
   const written = [];
 
@@ -192,8 +203,8 @@ export function saveEnvVars(pairs, envPath = HERMES_ENV_PATH) {
   let output = lines.join("\n");
   if (!output.endsWith("\n")) output += "\n";
   // Restrict permissions to owner only (best-effort; ignored on non-POSIX).
-  fs.writeFileSync(envPath, output, { mode: 0o600 });
-  try { fs.chmodSync(envPath, 0o600); } catch { /* ignore */ }
+  await fsp.writeFile(envPath, output, { mode: 0o600 });
+  try { await fsp.chmod(envPath, 0o600); } catch { /* ignore */ }
   return { written, path: envPath };
 }
 
