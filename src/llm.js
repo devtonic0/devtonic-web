@@ -10,7 +10,7 @@ const CONFIG_PATH = path.join(os.homedir(), ".hermes", "config.yaml");
 const ENV_PATH = path.join(os.homedir(), ".hermes", ".env");
 
 // Naive YAML key reader (single-key path, e.g. "model.default").
-function yamlGet(text, dotted) {
+export function yamlGet(text, dotted) {
   const parts = dotted.split(".");
   let indent = 0, idx = 0;
   const lines = text.split("\n");
@@ -27,11 +27,10 @@ function yamlGet(text, dotted) {
   return "";
 }
 
-function readEnv() {
-  try {
-    const t = fs.readFileSync(ENV_PATH, "utf8");
-    return Object.fromEntries([...t.matchAll(/^([A-Z0-9_]+)=(.+)$/gm)].map(m => [m[1], m[2]]));
-  } catch { return {}; }
+const readText = p => fs.promises.readFile(p, "utf8").catch(() => "");
+
+export function parseEnv(text) {
+  return Object.fromEntries([...String(text).matchAll(/^([A-Z0-9_]+)=(.+)$/gm)].map(m => [m[1], m[2]]));
 }
 
 /**
@@ -39,9 +38,10 @@ function readEnv() {
  * downgrades to the tier-appropriate model for the provider.
  * Returns { provider, model, apiKey, endpoint } or throws with a helpful message.
  */
-export function llmClient(tier) {
-  const cfg = (() => { try { return fs.readFileSync(CONFIG_PATH, "utf8"); } catch { return ""; } })();
-  const env = readEnv();
+export async function llmClient(tier) {
+  // Read via fs.promises (fetch in the browser), both files concurrently.
+  const [cfg, envText] = await Promise.all([readText(CONFIG_PATH), readText(ENV_PATH)]);
+  const env = parseEnv(envText);
   const provider = yamlGet(cfg, "model.provider") || "anthropic";
   const defaultModel = yamlGet(cfg, "model.default") || "claude-opus-4-7";
   const model = tier ? routeModel(provider, defaultModel, tier) : defaultModel;
@@ -72,7 +72,7 @@ export function llmClient(tier) {
  * assistant's text (no tool calls, no streaming).
  */
 export async function llmComplete({ messages, maxTokens = 400, temperature = 0.2, tier }) {
-  const c = llmClient(tier);
+  const c = await llmClient(tier);
   if (c.kind === "anthropic") {
     const system = messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
     const user = messages.filter(m => m.role !== "system");

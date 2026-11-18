@@ -50,9 +50,9 @@ export function setUiScale(pct) {
   return v;
 }
 
-function listDir(dir) {
+async function listDir(dir) {
   const fs = window.require("fs");
-  return fs.readdirSync(dir, { withFileTypes: true })
+  return (await fs.promises.readdir(dir, { withFileTypes: true }))
     .map(d => ({ name: d.name, isDir: d.isDirectory(), isFile: d.isFile() }));
 }
 const home = () => window.require("os").homedir();

@@ -25,14 +25,16 @@ function fetchRunning(cb) {
     rows => cb(rows.filter(p => AGENT_RE.test(p.cmd))));
 }
 
-function lastOutput(id) {
+// Newest output file for a cron job, read via fs.promises (no sync XHR).
+export async function lastOutput(id, fsp = fs.promises, dir = OUT_DIR) {
   try {
-    const files = fs.readdirSync(OUT_DIR)
+    const files = (await fsp.readdir(dir))
       .filter(f => f.startsWith(id + "_") && f.endsWith(".txt"))
       .sort().reverse();
     if (!files[0]) return null;
-    const full = path.join(OUT_DIR, files[0]);
-    return { file: full, text: fs.readFileSync(full, "utf8"), at: fs.statSync(full).mtime };
+    const full = path.join(dir, files[0]);
+    const [text, st] = await Promise.all([fsp.readFile(full, "utf8"), fsp.stat(full)]);
+    return { file: full, text, at: st.mtime };
   } catch { return null; }
 }
 
@@ -149,7 +151,14 @@ export default function Tasks() {
 }
 
 function Job({ job: j, expanded, onToggle, onCron, busy }) {
-  const out = expanded ? lastOutput(j.id) : null;
+  const [out, setOut] = useState(null);
+  // Load the latest output when expanded; refresh when the job's last run changes.
+  useEffect(() => {
+    if (!expanded) { setOut(null); return; }
+    let live = true;
+    lastOutput(j.id).then(o => { if (live) setOut(o); });
+    return () => { live = false; };
+  }, [expanded, j.id, j.last_run_at]);
   const running = j.state === "running";
   return (
     <div className={`task-row ${running ? "live" : j.enabled ? "" : "off"}`}>
