@@ -1,7 +1,7 @@
 // In-app file/folder picker for the browser build, exposed as pickFolder() /
 // pickFile() in web.js (replacing the old prompt() dialogs). Plain DOM so
 // the shim can use it before React mounts. Listing goes through the bridge's
-// readdirSync (passed in as `listDir`).
+// async readdir (passed in as `listDir`, may return a value or a Promise).
 import { normalize, parentDir, joinPath, crumbs, expandHome, visibleEntries } from "./picker-model.js";
 
 const el = (tag, attrs = {}, ...kids) => {
@@ -22,7 +22,7 @@ const el = (tag, attrs = {}, ...kids) => {
  * @param {string} o.home     home dir (start dir + "~" expansion)
  * @param {string} [o.start]  initial directory
  * @param {string[]} [o.extensions] file-mode extension filter
- * @param {(dir:string)=>Array<{name,isDir,isFile}>} o.listDir
+ * @param {(dir:string)=>Promise<Array<{name,isDir,isFile}>>|Array<{name,isDir,isFile}>} o.listDir
  */
 export function openPicker({ mode = "folder", home, start, extensions = [], listDir, title }) {
   return new Promise(resolve => {
@@ -49,13 +49,19 @@ export function openPicker({ mode = "folder", home, start, extensions = [], list
     const done = v => { back.remove(); document.removeEventListener("keydown", onKey, true); resolve(v); };
     const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); done(null); } };
 
-    function render() {
+    // listDir is async (fs.promises over fetch). Each render takes a ticket so
+    // a slow listing of a directory the user already left is dropped.
+    let ticket = 0;
+    async function render() {
+      const mine = ++ticket;
       err.textContent = "";
       crumbBar.replaceChildren(...crumbs(cwd).map((c, i, all) =>
         el("button", { class: "picker-crumb" + (i === all.length - 1 ? " cur" : ""), onclick: () => go(c.path) }, c.label)));
       pathInput.value = selectedFile || cwd;
-      let raw;
-      try { raw = listDir(cwd); } catch (e) { err.textContent = e.message; raw = []; }
+      let raw, failure = "";
+      try { raw = await listDir(cwd); } catch (e) { failure = e.message; raw = []; }
+      if (mine !== ticket) return;
+      err.textContent = failure;
       const rows = visibleEntries(raw, { mode, extensions, showHidden });
       const up = cwd === "/" ? [] : [el("div", { class: "picker-row dir", ondblclick: () => go(parentDir(cwd)), onclick: () => go(parentDir(cwd)) }, "↰ ..")];
       list.replaceChildren(...up, ...rows.map(r => {
@@ -74,11 +80,11 @@ export function openPicker({ mode = "folder", home, start, extensions = [], list
     }
     function go(dir) { cwd = normalize(dir); selectedFile = null; render(); }
 
-    pathInput.addEventListener("keydown", e => {
+    pathInput.addEventListener("keydown", async e => {
       if (e.key !== "Enter") return;
       const target = expandHome(pathInput.value, home);
       try {
-        listDir(target);
+        await listDir(target);
         go(target);
       } catch (ex) {
         if (mode === "file" && ex.code === "ENOTDIR") return done(target);
