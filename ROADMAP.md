@@ -20,7 +20,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
   - [x] Convert the mission readers in Architecture, Features, Flow, Map (incl. import scan) and Secrets (env discovery/edit via `secrets-model.js`) to `fs.promises`; shared `useMission()` hook ([#12](https://github.com/devtonic0/devtonic-web/pull/12))
   - [x] Settings IO: in-memory cache primed at boot (`settings-model.js`), coalesced async writes via `fs.promises` ([#13](https://github.com/devtonic0/devtonic-web/pull/13))
   - [x] Convert `env-prompt.js` (async, injectable `fsp`/`home`, tested on node + shim), the Code lint/fix helpers, and the one-shot reads in Servers, Database, Autosetup and Workspace ([#14](https://github.com/devtonic0/devtonic-web/pull/14))
-  - [x] Convert `llm.js` env/config reads (async `llmClient`), the Tasks output reader, and the picker's `platform/web.js` directory listing (stale-listing guard) to `fs.promises`
+  - [x] Convert `llm.js` env/config reads (async `llmClient`), the Tasks output reader, and the picker's `platform/web.js` directory listing (stale-listing guard) to `fs.promises` ([#15](https://github.com/devtonic0/devtonic-web/pull/15))
   - [ ] Convert the remaining sync callers (App worker reports + project open, `store.js` mission/legacy-migrate/scan helpers); then remove sync XHR from the shim
 
 ## Phase 3: Agent integration
