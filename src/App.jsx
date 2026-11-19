@@ -33,6 +33,7 @@ import { projectRoot, setProject, recentProjects, loadSettings, saveSettings } f
 import logoUrl from "../assets/logo-small.png";
 
 import { pickFolder, reloadApp, setUiScale, notify } from "./platform/web.js";
+import { scanWorkerReports, formatWorkerReport } from "./platform/worker-reports.js";
 import { hermesFound } from "./platform/hermes.js";
 
 const TABS = {
@@ -118,48 +119,34 @@ export default function App() {
     const pth = window.require("path");
     const oss = window.require("os");
     const ROOT = pth.join(oss.homedir(), ".hermes", "fix-workers");
-    const seen = loadSettings().workerReportsSeen ?? {};
-    let stopped = false;
+    let stopped = false, busy = false;
     // Prime the seen-set on first run so we don't replay old reports as "new".
     let primed = false;
-    const tick = () => {
-      if (stopped) return;
-      let dirs = [];
+    // Async scan via fs.promises (see platform/worker-reports.js); overlapping
+    // ticks are skipped so a slow bridge never stacks requests.
+    const tick = async () => {
+      if (stopped || busy) return;
+      busy = true;
       try {
-        dirs = fsn.readdirSync(ROOT, { withFileTypes: true })
-          .filter(d => d.isDirectory() && d.name !== "specs").map(d => d.name);
-      } catch { return; }
-      const store = loadSettings().workerReportsSeen ?? {};
-      let changed = false;
-      for (const id of dirs) {
-        const rp = pth.join(ROOT, id, "report.json");
-        let mtime = 0;
-        try { mtime = Math.floor(fsn.statSync(rp).mtimeMs); } catch { continue; }
-        if (store[id] === mtime) continue;      // already surfaced this report
-        changed = true;
-        store[id] = mtime;
-        if (primed && !stopped) {
-          let rep = null;
-          try { rep = JSON.parse(fsn.readFileSync(rp, "utf8")); } catch {}
-          if (rep) {
-            const ok = rep.ok;
-            const git = (rep.git || [])
-              .map(g => `${g.repo}: ${g.dirty > 0 ? g.dirty + " uncommitted" : "clean"} — ${g.head}`)
-              .join("\n");
-            const text = `${ok ? "✅" : "⚠️"} **${rep.fix_id}** worker finished (rc=${rep.rc}, ${rep.duration_s}s)\n\n${rep.summary || ""}\n\n**git state:**\n${git}`;
-            bus.emit("worker-report", { id, text, ok });
-            if (loadSettings().workerNotifications !== false) {
-              notify(`${ok ? "✅" : "⚠️"} ${rep.fix_id} worker done`, {
-                body: rep.summary || "",
-                tag: `worker-${id}`,
-                onClick: () => bus.emit("open-tab", { id: "workers" }),
-              });
-            }
+        const { seen, changed, reports, listed } = await scanWorkerReports({
+          fsp: fsn.promises, join: pth.join, root: ROOT,
+          seen: loadSettings().workerReportsSeen ?? {}, readNew: primed,
+        });
+        if (stopped || !listed) return;
+        for (const { id, report: rep } of reports) {
+          const ok = rep.ok;
+          bus.emit("worker-report", { id, text: formatWorkerReport(rep), ok });
+          if (loadSettings().workerNotifications !== false) {
+            notify(`${ok ? "✅" : "⚠️"} ${rep.fix_id} worker done`, {
+              body: rep.summary || "",
+              tag: `worker-${id}`,
+              onClick: () => bus.emit("open-tab", { id: "workers" }),
+            });
           }
         }
-      }
-      if (changed) saveSettings({ workerReportsSeen: store });
-      primed = true;
+        if (changed) saveSettings({ workerReportsSeen: seen });
+        primed = true;
+      } finally { busy = false; }
     };
     tick();
     const t = setInterval(tick, 4000);
@@ -179,12 +166,15 @@ export default function App() {
   // Check if project needs setup; show modal or open it as-is.
   // A project is "set up" if it has devtonic.config.json at root OR the legacy
   // .hermes/mission.json (which we'll migrate on first load).
-  function openProject(root) {
-    const fsn = window.require("fs");
+  async function openProject(root) {
+    const fsp = window.require("fs").promises;
     const p = window.require("path");
-    const nu = p.join(root, "devtonic.config.json");
-    const legacy = p.join(root, ".hermes", "mission.json");
-    if (!fsn.existsSync(nu) && !fsn.existsSync(legacy)) {
+    const exists = f => fsp.access(f).then(() => true, () => false);
+    const [hasConfig, hasLegacy] = await Promise.all([
+      exists(p.join(root, "devtonic.config.json")),
+      exists(p.join(root, ".hermes", "mission.json")),
+    ]);
+    if (!hasConfig && !hasLegacy) {
       setSetupRoot(root);
     } else {
       switchProject(root);
@@ -209,16 +199,17 @@ export default function App() {
     });
   }
 
-  function createProject(base, name) {
+  async function createProject(base, name) {
     if (!name?.trim()) return;
-    const fs = window.require("fs");
+    const fsp = window.require("fs").promises;
     const path = window.require("path");
-    const { execFileSync } = window.require("child_process");
+    const { execFile } = window.require("child_process");
     const root = path.join(base, name.trim());
-    fs.mkdirSync(root, { recursive: true });
-    try { execFileSync("git", ["init"], { cwd: root }); } catch {}
+    await fsp.mkdir(root, { recursive: true });
+    // The shim's child_process is async-only (no execFileSync).
+    await new Promise(res => execFile("git", ["init"], { cwd: root }, () => res()));
     // Empty project → open the auto-setup modal so Hermes scans and populates.
-    openProject(root);
+    await openProject(root);
   }
 
   useEffect(() => {

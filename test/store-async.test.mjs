@@ -88,17 +88,42 @@ for (const name of Object.keys(backends)) {
     assert.deepEqual((await store.loadMissionAsync(root)).todos, mission.todos);
   }));
 
-  test(`[${name}] scanTreeAsync matches scanTree exactly`, withBackend(name, async () => {
+  test(`[${name}] scanTreeAsync walks breadth-first, skips ignored dirs and respects budgets`, withBackend(name, async () => {
     const root = env.project(`${name}-tree`);
     for (const sub of ["a", "b", "node_modules", ".git", ".hermes"]) fs.mkdirSync(path.join(root, sub));
     fs.mkdirSync(path.join(root, "a", "deep"));
     fs.writeFileSync(path.join(root, "a", "deep", "x.js"), "x");
     fs.writeFileSync(path.join(root, "b", "y.PY"), "y".repeat(10_000));
     fs.writeFileSync(path.join(root, "node_modules", "z.js"), "z");
-    for (const [depth, max] of [[6, 2000], [6, 3], [1, 2000], [6, 1]]) {
-      assert.deepEqual(await store.scanTreeAsync(root, depth, max), store.scanTree(root, depth, max), `depth=${depth} max=${max}`);
-    }
-    assert.deepEqual(await store.scanTreeAsync(path.join(root, "missing")), store.scanTree(path.join(root, "missing")));
+
+    const { nodes, links } = await store.scanTreeAsync(root);
+    const names = nodes.map(n => n.name);
+    assert.deepEqual(names.slice(1), [".hermes", "a", "b", "deep", "y.PY", "x.js"], "BFS, dirs first");
+    assert.ok(!names.includes("node_modules") && !names.includes(".git") && !names.includes("z.js"));
+    assert.equal(nodes.find(n => n.name === "y.PY").ext, "py");
+    assert.equal(nodes.find(n => n.name === "y.PY").size, 5);
+    assert.equal(nodes.find(n => n.name === "x.js").depth, 3);
+    assert.equal(links.length, nodes.length - 1);
+    assert.deepEqual(links.find(l => l.target.endsWith("x.js")).source, path.join(root, "a", "deep"));
+
+    const capped = await store.scanTreeAsync(root, 6, 3);
+    assert.deepEqual(capped.nodes.slice(1).map(n => n.name), [".hermes", "a", "b"], "siblings before children");
+    assert.equal((await store.scanTreeAsync(root, 1)).nodes.some(n => n.name === "deep"), false);
+    assert.equal((await store.scanTreeAsync(root, 6, 1)).nodes.length, 2);
+    const missing = await store.scanTreeAsync(path.join(root, "missing"));
+    assert.equal(missing.nodes.length, 1);
+    assert.deepEqual(missing.links, []);
+  }));
+
+  test(`[${name}] chatContext lists open todos and the active phase`, withBackend(name, async () => {
+    const root = env.project(`${name}-ctx`);
+    store.setProject(root);
+    await store.saveMissionAsync({ todos: [{ text: "ship it", done: false }, { text: "old", done: true }] }, root);
+    const ctx = await store.chatContext();
+    assert.match(ctx, new RegExp(`Target project: .*${name}-ctx-`));
+    assert.match(ctx, /Active phase: Build/);
+    assert.match(ctx, /- ship it/);
+    assert.doesNotMatch(ctx, /- old/);
   }));
 
   test(`[${name}] readFileSafeAsync truncates and reports errors inline`, withBackend(name, async () => {

@@ -48,6 +48,30 @@ export function createFsPromises(rpc) {
   };
 }
 
+/** Sync `fs` method names the bridge used to serve over synchronous XHR. */
+export const REMOVED_SYNC_FS = [
+  "readFileSync", "writeFileSync", "existsSync", "mkdirSync", "statSync", "readdirSync",
+  "copyFileSync", "chmodSync", "accessSync", "unlinkSync", "renameSync", "readTail",
+];
+
+/**
+ * Stand-ins for the removed sync fs methods: each throws ERR_SYNC_FS_REMOVED
+ * with a pointer to the `fs.promises` equivalent, so an old custom panel
+ * fails loudly instead of silently hanging the UI on synchronous XHR.
+ */
+export function removedSyncFs() {
+  const out = {};
+  for (const name of REMOVED_SYNC_FS) {
+    const alt = name === "existsSync" ? "exists" : name.replace(/Sync$/, "");
+    out[name] = () => {
+      const e = new Error(`devtonic-web: fs.${name}() was removed (it blocked the UI on synchronous XHR); use \`await fs.promises.${alt}()\` instead`);
+      e.code = "ERR_SYNC_FS_REMOVED";
+      throw e;
+    };
+  }
+  return out;
+}
+
 /** Transport for createFsPromises: POST /api/fs via fetch with the bridge token. */
 export function fetchRpc(token, base = "", fetchImpl = globalThis.fetch) {
   return async (fn, args) => {

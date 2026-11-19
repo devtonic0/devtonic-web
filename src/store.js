@@ -53,7 +53,7 @@ function watchMission(root) {
     missionWatcher = fs.watch(missionPath(root), (_evt, file) => {
       if (file && file !== CONFIG_FILE) return;
       clearTimeout(t);
-      t = setTimeout(() => bus.emit("mission", loadMission(root)), 250);
+      t = setTimeout(async () => bus.emit("mission", await loadMissionAsync(root)), 250);
     });
   } catch { /* dir unreadable */ }
 }
@@ -103,8 +103,8 @@ export function historyForProject(root, session) {
 
 // Compact context block injected into every chat turn so Hermes knows
 // the project state AND the mission.json contract it maintains.
-export function chatContext() {
-  const m = loadMission();
+export async function chatContext() {
+  const m = await loadMissionAsync();
   const todo = (m.todos ?? []).filter(t => !t.done).slice(0, 6).map(t => "- " + t.text).join("\n");
   const active = (m.phases ?? []).find(p => p.status === "active")?.name ?? "?";
 
@@ -158,19 +158,6 @@ const LEGACY_FILE = path.join(".hermes", "mission.json");
 const missionPath = root => path.join(root, CONFIG_FILE);
 const legacyPath = root => path.join(root, LEGACY_FILE);
 
-function migrateLegacy(root) {
-  const nu = missionPath(root), old = legacyPath(root);
-  if (fs.existsSync(nu) || !fs.existsSync(old)) return;
-  try {
-    fs.copyFileSync(old, nu);
-    // Leave the old file in place with a stub pointer so any external tool
-    // still poking at it doesn't error, but the source of truth is the new path.
-    fs.writeFileSync(old, JSON.stringify({
-      _moved: `→ ${CONFIG_FILE} at project root (migrated by Devtonic)`,
-    }, null, 2));
-  } catch { /* migration is best-effort */ }
-}
-
 const DEFAULT_MISSION = {
   notes: "# Notes\n\nProject notes live here — markdown supported.\n",
   todos: [],
@@ -182,25 +169,8 @@ const DEFAULT_MISSION = {
   ],
 };
 
-export function loadMission(root = projectRoot) {
-  migrateLegacy(root);
-  try {
-    return { ...DEFAULT_MISSION, ...JSON.parse(fs.readFileSync(missionPath(root), "utf8")) };
-  } catch {
-    return structuredClone(DEFAULT_MISSION);
-  }
-}
-
-export function saveMission(mission, root = projectRoot) {
-  const p = missionPath(root);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(mission, null, 2));
-  bus.emit("mission", mission);
-}
-
-// ---------- async variants (fs.promises — no sync XHR in the browser) ----------
-// Panels that load on mount or react to user edits use these so the main
-// thread never blocks on the bridge. Only standard Node `fs/promises` methods
+// ---------- mission IO (fs.promises — no sync XHR in the browser) ----------
+// All store IO is async so the main thread never blocks on the bridge. Only standard Node `fs/promises` methods
 // are used, so the same code runs against the shim and against real Node.
 const fsp = () => fs.promises;
 const existsAsync = p => fsp().access(p).then(() => true, () => false);
@@ -210,6 +180,8 @@ async function migrateLegacyAsync(root) {
   if (await existsAsync(nu) || !(await existsAsync(old))) return;
   try {
     await fsp().copyFile(old, nu);
+    // Leave the old file in place with a stub pointer so any external tool
+    // still poking at it doesn't error, but the source of truth is the new path.
     await fsp().writeFile(old, JSON.stringify({
       _moved: `→ ${CONFIG_FILE} at project root (migrated by Devtonic)`,
     }, null, 2));
@@ -242,8 +214,10 @@ export async function readFileSafeAsync(p, limit = 400_000) {
   }
 }
 
-/** Same BFS/budget semantics as scanTree, but each directory level is listed
- *  and stat'ed concurrently via fs.promises. */
+/** Breadth-first project scan for the map + code tree. BFS spreads the node
+ *  budget across sibling folders (a depth-first walk spends it all inside the
+ *  first subtree, hiding sibling repos); directories sort first. Each level is
+ *  listed and stat'ed concurrently via fs.promises. */
 export async function scanTreeAsync(root = projectRoot, maxDepth = 6, maxNodes = 2000) {
   const nodes = [], links = [];
   let count = 0;
@@ -283,62 +257,8 @@ export async function scanTreeAsync(root = projectRoot, maxDepth = 6, maxNodes =
   return { nodes, links };
 }
 
-// ---------- filesystem scan (for map + code tree) ----------
+// Folders skipped by scanTreeAsync (read at call time).
 const IGNORE = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv", ".cache", "coverage"]);
-
-export function scanTree(root = projectRoot, maxDepth = 6, maxNodes = 2000) {
-  const nodes = [], links = [];
-  let count = 0;
-  // Breadth-first traversal: without this, a depth-first walk spends the entire
-  // node budget inside the FIRST subtree it descends. In a parent repo that
-  // contains several child repos, that means only the first child shows up on
-  // the map and its siblings are silently dropped. A BFS queue spreads the
-  // budget evenly across every branch, so all sibling repos appear.
-  nodes.push({ id: root, name: path.basename(root), dir: true, ext: "root", size: 12, depth: 0 });
-  const queue = [{ dir: root, parentId: root, depth: 1 }];
-  while (queue.length && count < maxNodes) {
-    const { dir, parentId, depth } = queue.shift();
-    if (depth > maxDepth) continue;
-    let entries = [];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-    // Directories first so nested repos/folders are discovered before the
-    // budget is spent on leaf files in shallow folders.
-    entries.sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
-    for (const e of entries) {
-      if (count >= maxNodes) break;
-      if (e.name.startsWith(".") && e.name !== ".hermes") continue;
-      if (IGNORE.has(e.name)) continue;
-      const full = path.join(dir, e.name);
-      const id = full;
-      let size = 1;
-      if (!e.isDirectory()) {
-        try { size = Math.max(1, Math.min(40, fs.statSync(full).size / 2000)); } catch {}
-      }
-      nodes.push({
-        id,
-        name: e.name,
-        dir: e.isDirectory(),
-        ext: e.isDirectory() ? "dir" : (e.name.split(".").pop() || "").toLowerCase(),
-        size,
-        depth,
-      });
-      links.push({ source: parentId, target: id });
-      count++;
-      if (e.isDirectory()) queue.push({ dir: full, parentId: id, depth: depth + 1 });
-    }
-  }
-  return { nodes, links };
-}
-
-export function readFileSafe(p, limit = 400_000) {
-  try {
-    const buf = fs.readFileSync(p);
-    if (buf.length > limit) return buf.slice(0, limit).toString("utf8") + "\n\n… (truncated)";
-    return buf.toString("utf8");
-  } catch (e) {
-    return `⚠️ ${e.message}`;
-  }
-}
 
 // initialize watcher for the boot project (after all declarations)
 watchMission(projectRoot);

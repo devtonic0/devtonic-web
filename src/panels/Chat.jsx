@@ -463,7 +463,7 @@ export default function Chat() {
     const historyBlock = buildHistoryBlock(priorMsgs);
     // --no-restore-cwd: otherwise hermes cd's into the session's recorded dir
     // and prints "↪ restored workspace dir: …" to stdout, which leaks into the reply.
-    const prompt = chatContext() + historyBlock + text;
+    const prompt = (await chatContext()) + historyBlock + text;
     const extra = [];
     if (chosenModel) extra.push("-m", chosenModel);
     if (mc.provider) extra.push("--provider", mc.provider);

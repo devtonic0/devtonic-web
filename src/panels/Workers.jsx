@@ -48,7 +48,7 @@ async function scanWorkers() {
     // Alive check: state says running AND the pid is live.
     let alive = false;
     if (state === "running" && pid) {
-      try { process.kill(+pid, 0); alive = true; } catch { alive = false; }
+      try { await process.kill(+pid, 0); alive = true; } catch { alive = false; }
     }
     return { id, dir, state, pid, started, report, alive };
   }));
