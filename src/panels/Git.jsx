@@ -11,11 +11,17 @@ const path = window.require("path");
 const fs = window.require("fs");
 
 // Detect gh binary — packaged Electron loses PATH mods from ~/.bashrc, so check
-// well-known locations before falling back to plain "gh".
-const GH = [
-  path.join(os.homedir(), ".local", "bin", "gh"),
-  "/usr/bin/gh", "/usr/local/bin/gh", "/opt/homebrew/bin/gh",
-].find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } }) || "gh";
+// well-known locations before falling back to plain "gh". Resolved async (no
+// blocking fs at import); gh() awaits it, so callers always see the result.
+let GH = "gh";
+const ghReady = (async () => {
+  for (const p of [
+    path.join(os.homedir(), ".local", "bin", "gh"),
+    "/usr/bin/gh", "/usr/local/bin/gh", "/opt/homebrew/bin/gh",
+  ]) {
+    try { await fs.promises.access(p, fs.constants.X_OK); GH = p; return; } catch { /* try next */ }
+  }
+})();
 
 // Augmented PATH for every spawn/execFile in this panel (Electron strips ~/.bashrc PATH).
 const EXEC_ENV = {
@@ -39,7 +45,7 @@ const run = (cmd, args, opts = {}) =>
   });
 
 const git = (...args) => run("git", args);
-const gh = (...args) => run(GH, args);
+const gh = async (...args) => { await ghReady; return run(GH, args); };
 
 export default function Git() {
   const [state, setState] = useState({ branch: "", ahead: 0, behind: 0, files: [], log: [], remote: "" });
@@ -92,6 +98,7 @@ export default function Git() {
     const tok = tokenInput.trim();
     if (!tok) return;
     setBusyMsg("saving token…");
+    await ghReady;
     const p = spawn(GH, ["auth", "login", "--with-token"], { env: EXEC_ENV });
     p.stdin.write(tok + "\n"); p.stdin.end();
     let err = "";
@@ -111,7 +118,8 @@ export default function Git() {
   // code: XXXX-XXXX\nPress Enter to open browser: " then hangs. We capture that
   // output, extract the code, show it + the URL in the UI, and let the user
   // open the URL in a new browser tab.
-  function browserLogin() {
+  async function browserLogin() {
+    await ghReady;
     setBusyMsg("starting browser sign-in…");
     setOutput("");
     const p = spawn(GH, ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"], {

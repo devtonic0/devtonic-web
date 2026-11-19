@@ -4,13 +4,15 @@
 // (links, clipboard, zoom, pickers, notifications) live in ./web.js; there is
 // no window.require("electron").
 //
-// Sync fs calls use synchronous XHR to 127.0.0.1 so legacy panels work
-// unchanged. Polling and new code should use `fs.promises` (fetch-based, see
-// ./fs-async.js), which doesn't block the main thread. fs.watch polls async.
+// All fs IO is async: `fs.promises` (fetch-based, see ./fs-async.js) over the
+// bridge's /api/fs RPC. The old sync methods (readFileSync, ...) used
+// synchronous XHR and blocked the main thread; they now throw
+// ERR_SYNC_FS_REMOVED with a pointer to the async equivalent. fs.watch polls
+// async. The /api/env snapshot is fetched once at startup (top-level await).
 import pathMod from "path-browserify";
 import { resolveModule } from "./modules.js";
 import { createAsyncMtimePoller } from "./watch-model.js";
-import { createFsPromises, fetchRpc } from "./fs-async.js";
+import { createFsPromises, fetchRpc, removedSyncFs } from "./fs-async.js";
 
 if (!window.require) {
   const qs = new URLSearchParams(location.search);
@@ -20,39 +22,19 @@ if (!window.require) {
   }
   const TOKEN = localStorage.getItem("devtonic-token") || "";
 
-  function syncReq(method, url, body) {
-    const x = new XMLHttpRequest();
-    x.open(method, url, false);
-    x.setRequestHeader("x-devtonic-token", TOKEN);
-    if (body) x.setRequestHeader("content-type", "application/json");
-    x.send(body ? JSON.stringify(body) : null);
-    if (x.status === 401) throw new Error("devtonic-web: bad or missing token — open the URL printed by the server");
-    return JSON.parse(x.responseText);
-  }
-
-  const ENV = syncReq("GET", "/api/env");
+  const envRes = await fetch("/api/env", { headers: { "x-devtonic-token": TOKEN } });
+  if (envRes.status === 401) throw new Error("devtonic-web: bad or missing token — open the URL printed by the server");
+  const ENV = await envRes.json();
 
   // ---- fs ----
-  const call = (fn, ...args) => {
-    const r = syncReq("POST", "/api/fs", { fn, args });
+  const rpc = fetchRpc(TOKEN);
+  const call = async (fn, ...args) => {
+    const r = await rpc(fn, args);
     if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; }
     return r.value;
   };
-  const dirent = d => ({ name: d.name, isDirectory: () => d.isDir, isFile: () => d.isFile });
-  const stat = s => ({ ...s, mtime: new Date(s.mtime), isDirectory: () => s.isDir, isFile: () => s.isFile });
   const fs = {
-    readFileSync: (p, enc) => call("readFileSync", p, typeof enc === "string" ? enc : enc?.encoding || "utf8"),
-    writeFileSync: (p, d, o) => call("writeFileSync", p, String(d), o),
-    existsSync: p => call("existsSync", p),
-    mkdirSync: (p, o) => call("mkdirSync", p, o),
-    statSync: p => stat(call("statSync", p)),
-    readdirSync: (p, o) => o?.withFileTypes ? call("readdirSync", p, o).map(dirent) : call("readdirSync", p),
-    copyFileSync: (a, b) => call("copyFileSync", a, b),
-    chmodSync: (p, m) => call("chmodSync", p, m),
-    accessSync: (p, m) => call("accessSync", p, m),
-    unlinkSync: p => call("unlinkSync", p),
-    renameSync: (a, b) => call("renameSync", a, b),
-    readTail: (p, n) => call("readTail", p, n),
+    ...removedSyncFs(),
     constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
     // Polling watcher: fs.watch over the bridge polls the path's mtime (async,
     // via fs.promises) and reports (eventType, basename) like Node does for a
@@ -64,7 +46,7 @@ if (!window.require) {
       const t = setInterval(poller.tick, 2000);
       return { close: () => clearInterval(t) };
     },
-    promises: createFsPromises(fetchRpc(TOKEN)),
+    promises: createFsPromises(rpc),
   };
 
   // ---- os ----
@@ -131,6 +113,8 @@ if (!window.require) {
     env: ENV.env, platform: ENV.platform, cwd: () => ENV.cwd,
     // Hermes CLI location resolved by the bridge (see server/hermes.mjs).
     devtonicHermes: ENV.hermes || null,
+    // Async (Promise) in the browser: resolves when the signal was delivered,
+    // rejects like Node's process.kill otherwise (e.g. ESRCH). Await it.
     kill: (pid, sig) => call("kill", pid, sig),
   };
   window.__DEVTONIC_WEB__ = true;
