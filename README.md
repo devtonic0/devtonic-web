@@ -30,8 +30,10 @@ The bridge looks for the agent CLI in this order: the `DEVTONIC_HERMES` env var 
 ```bash
 npm run serve   # bridge server on :4777 (prints the token URL)
 npm run dev     # vite on :5173 with /api proxied; open http://localhost:5173/?token=<token>
-npm test        # bridge integration tests
+npm run build && npm test   # unit + bridge integration tests, plus a headless-Chrome UI smoke test
 ```
+
+The UI smoke test (`test/ui-smoke.test.mjs`) boots the bridge against `dist/` with a throwaway `HOME`, opens every panel in headless Chrome and fails on any console error, uncaught exception or failed request. It auto-detects Chrome/Chromium (override with `DEVTONIC_CHROME=/path/to/chrome`). Locally it is skipped when no browser or `dist/` is found; in CI a missing browser is a failure.
 
 ## How it works
 
