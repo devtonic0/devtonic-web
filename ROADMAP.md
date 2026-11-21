@@ -26,7 +26,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 ## Phase 3: Agent integration
 - [ ] Structured streaming chat via devtonic-agent's API (replace log tailing)
 - [ ] Session list and resume from agent API
-- [x] First-run onboarding: detect missing agent and show install instructions (wizard with per-platform steps + broken `DEVTONIC_HERMES` detection, persistent banner after skip)
+- [x] First-run onboarding: detect missing agent and show install instructions (wizard with per-platform steps + broken `DEVTONIC_HERMES` detection, persistent banner after skip) ([#18](https://github.com/devtonic0/devtonic-web/pull/18))
 
 ## Phase 4: Distribution
 - [ ] `npx devtonic-web` publish (npm), including build-on-install or prebuilt `dist/`
