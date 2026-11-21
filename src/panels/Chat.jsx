@@ -7,11 +7,17 @@ import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
+import { agentStatus, streamAgentChat, respondApproval, stopRun } from "../platform/agent.js";
+import { initialTurn, reduceTurn, turnReply, transportLabel } from "../platform/agent-stream.js";
 
 // Real Hermes chat with live activity feed + per-turn git diffs.
-// Each turn: spawn `hermes --cli -z <msg> --continue <session>`, tail
-// ~/.hermes/logs/agent.log for tool activity while it runs, and capture
-// `git diff` in the project root before/after to show what changed.
+// Preferred transport: the agent's HTTP API (structured SSE events: deltas,
+// tool start/finish, approvals) through the bridge's /api/agent/chat. The
+// agent keeps the session history server-side, so no transcript replay.
+// Fallback when the API isn't available: spawn
+// `hermes --cli -z <msg> --continue <session>` and tail
+// ~/.hermes/logs/agent.log for tool activity while it runs.
+// Either way `git diff` in the project root shows what changed.
 const { spawn, execFile } = window.require("child_process");
 const os = window.require("os");
 const path = window.require("path");
@@ -116,6 +122,26 @@ function gitDiff(cb) {
       cb({ full: out || "", stat: stat || "" });
     });
   });
+}
+
+function ApprovalCard({ approval, onChoose }) {
+  const [sending, setSending] = useState(false);
+  const label = { once: "allow once", session: "allow for session", always: "always allow", deny: "deny" };
+  return (
+    <div className="approval-card" role="alert">
+      <div className="approval-title">⚠ Hermes wants to run a command that needs approval</div>
+      {approval.description && <div className="approval-desc">{approval.description}</div>}
+      {approval.command && <pre className="approval-cmd">{approval.command}</pre>}
+      <div className="approval-actions">
+        {approval.choices.map(c => (
+          <button key={c} className={`tb-btn${c === "deny" ? " danger" : ""}`} disabled={sending}
+                  onClick={async () => { setSending(true); try { await onChoose(c); } finally { setSending(false); } }}>
+            {label[c] || c}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Activity({ act, defaultOpen }) {
@@ -361,6 +387,111 @@ export default function Chat() {
     setMessages(historyForProject(newRoot, nextActive) ?? [GREETING]);
   }), []);
 
+  // Which transport the last turn used / would use (agent API vs CLI).
+  const [transport, setTransport] = useState(null);
+  useEffect(() => { agentStatus().then(setTransport); }, []);
+  const apiRef = useRef(null); // { ctl: AbortController, runId } during an API turn
+  const [liveTurn, setLiveTurn] = useState(null); // reduced SSE state during an API turn
+
+  // Current model + smart-routing pick for this prompt (also surfaces the
+  // routing decision in the transcript).
+  async function pickModel(text) {
+    const mc = await currentModel();
+    setModelCfg(mc);
+    const routing = routingStatus();
+    let chosenModel = mc.model;
+    if (routing.enabled && mc.provider) {
+      const chosenTier = classifyTask({ prompt: text });
+      chosenModel = routeModel(mc.provider, mc.model, chosenTier) || mc.model;
+      lastRoutedRef.current = { model: chosenModel, tier: chosenTier };
+      setLastRouted({ model: chosenModel, tier: chosenTier });
+      if (chosenModel !== mc.model) {
+        setMessages(m => [...m, { who: "system", text: `⚡ routed to ${chosenModel} (${chosenTier})` }]);
+      }
+    } else {
+      lastRoutedRef.current = null;
+      setLastRouted(null);
+    }
+    return { mc, chosenModel };
+  }
+
+  // Poll git diff every 2.5s so the user sees code changes stream in.
+  function startDiffPoll() {
+    return setInterval(() => {
+      execFile("git", ["-C", projectRoot, "diff", "HEAD"], { maxBuffer: 8e6 }, (_e, full) => {
+        execFile("git", ["-C", projectRoot, "diff", "HEAD", "--stat"], { maxBuffer: 1e6 }, (_e2, stat) => {
+          const files = (stat || "").trim() ? (stat.trim().split("\n").length - 1) || 1 : 0;
+          setLiveAct(a => (a ? { ...a, files } : a));
+          setLiveDiff((stat || "").trim() ? { full: full || "", stat: stat || "" } : null);
+        });
+      });
+    }, 2500);
+  }
+
+  // One turn over the agent API. The agent holds the session history, so only
+  // the mission context (as ephemeral instructions) and the new message are
+  // sent. Returns false when the turn never started so the caller can fall
+  // back to the CLI; true once the stream ran (whatever its outcome).
+  async function sendViaApi(text, mc, chosenModel, collectMissing) {
+    const ctl = new AbortController();
+    apiRef.current = { ctl, runId: null };
+    let turn = initialTurn();
+    let streamed = false;
+    setLiveTurn(turn);
+    setLiveAct({ entries: [], transcript: [], live: true, startedAt: turn.startedAt, files: 0 });
+    setLiveDiff(null);
+    const diffPoll = startDiffPoll();
+    const onEvent = ev => {
+      streamed = true;
+      turn = reduceTurn(turn, ev);
+      if (turn.runId && apiRef.current) apiRef.current.runId = turn.runId;
+      if (ev.event === "tool.completed" || ev.event === "tool.failed") collectMissing(String(ev.data?.preview || ""));
+      setLiveTurn(turn);
+      setLiveAct(a => ({ ...(a ?? {}), entries: turn.entries, transcript: turn.transcript, live: true, startedAt: turn.startedAt }));
+    };
+    try {
+      await streamAgentChat({ session, message: text, instructions: await chatContext(),
+        model: chosenModel || undefined, provider: mc.provider || undefined, signal: ctl.signal, onEvent });
+    } catch (e) {
+      if (!streamed && !ctl.signal.aborted) {
+        clearInterval(diffPoll);
+        apiRef.current = null;
+        setLiveTurn(null);
+        setLiveAct(null);
+        setMessages(m => [...m, { who: "system", text: `agent API unavailable (${e.message}), using the CLI for this turn` }]);
+        return false;
+      }
+      if (!ctl.signal.aborted) turn = reduceTurn(turn, { event: "error", data: { message: e.message } });
+    }
+    if (ctl.signal.aborted && turn.status !== "cancelled") turn = reduceTurn(turn, { event: "run.cancelled", data: {} });
+    clearInterval(diffPoll);
+    apiRef.current = null;
+    collectMissing(turn.final ?? turn.text);
+    const reply = turnReply(turn);
+    setBusy(false);
+    setLiveTurn(null);
+    setLiveAct(null);
+    setLiveDiff(null);
+    gitDiff(diff => {
+      setMessages(m => [...m, { who: "hermes", text: reply,
+        activity: { entries: turn.entries, transcript: turn.transcript, live: false, startedAt: turn.startedAt }, diff }]);
+    });
+    const raw = [...missingEnvRef.current];
+    if (raw.length) unsetEnvNames(raw).then(detected => { if (detected.length) setEnvPrompt({ names: detected }); });
+    return true;
+  }
+
+  async function chooseApproval(choice) {
+    const a = liveTurn?.approval;
+    if (!a?.runId) return;
+    try {
+      await respondApproval(a.runId, choice, a.requestId);
+      setLiveTurn(t => (t ? reduceTurn(t, { event: "approval.responded", data: {} }) : t));
+    } catch (e) {
+      setMessages(m => [...m, { who: "system", text: `approval failed: ${e.message}` }]);
+    }
+  }
+
   async function send(overrideText) {
     const text = (overrideText ?? input).trim();
     if (!text || busy) return;
@@ -379,6 +510,16 @@ export default function Chat() {
       for (const n of found) missingEnvRef.current.add(n);
     };
 
+    const { mc, chosenModel } = await pickModel(text);
+    // Structured agent API first; fall back to the CLI if the turn can't start.
+    const st = await agentStatus();
+    setTransport(st);
+    if (st.available) {
+      const started = await sendViaApi(text, mc, chosenModel, collectMissing);
+      if (started) return;
+      setTransport(await agentStatus({ force: true }));
+    }
+
     // live activity: tail agent.log, lock onto OUR session (matched by prompt
     // prefix), narrate every api call/tool, and poll git diff for live change count.
     const entries = [];
@@ -390,17 +531,7 @@ export default function Chat() {
     setLiveDiff(null);
     const tail = spawn("tail", ["-n", "0", "-F", AGENT_LOG]);
     tailRef.current = tail;
-    // Poll git diff every 2.5s so the user sees code changes stream in.
-    const diffPoll = setInterval(() => {
-      execFile("git", ["-C", projectRoot, "diff", "HEAD"], { maxBuffer: 8e6 }, (_e, full) => {
-        execFile("git", ["-C", projectRoot, "diff", "HEAD", "--stat"], { maxBuffer: 1e6 }, (_e2, stat) => {
-          const files = (stat || "").trim() ? (stat.trim().split("\n").length - 1) || 1 : 0;
-          setLiveAct(a => (a ? { ...a, files } : a));
-          setLiveDiff((stat || "").trim() ? { full: full || "", stat: stat || "" } : null);
-        });
-      });
-    }, 2500);
-    tail._diffPoll = diffPoll;
+    tail._diffPoll = startDiffPoll();
     tail.stdout.on("data", d => {
       const chunk = d.toString();
       collectMissing(chunk);
@@ -425,30 +556,6 @@ export default function Chat() {
     });
 
     let out = "", err = "";
-    const mc = await currentModel();
-    setModelCfg(mc);
-    // Smart routing: when enabled in settings, classify the prompt and pick
-    // a cheaper model for simple tasks. Falls back to configured default.
-    const routing = routingStatus();
-    let chosenModel = mc.model;
-    let chosenTier = null;
-    if (routing.enabled && mc.provider) {
-      chosenTier = classifyTask({ prompt: text });
-      chosenModel = routeModel(mc.provider, mc.model, chosenTier) || mc.model;
-      lastRoutedRef.current = { model: chosenModel, tier: chosenTier };
-      setLastRouted({ model: chosenModel, tier: chosenTier });
-      // Surface routing in the message stream so the user can see which model
-      // handled each turn (subtle system row, not from the assistant).
-      if (chosenModel !== mc.model) {
-        setMessages(m => [...m, {
-          who: "system",
-          text: `⚡ routed to ${chosenModel} (${chosenTier})`,
-        }]);
-      }
-    } else {
-      lastRoutedRef.current = null;
-      setLastRouted(null);
-    }
     // Build the conversation-history block from the transcript as it was
     // BEFORE this turn's user message (messagesRef hasn't re-rendered yet).
     // If the last stored message is this exact user text (env-var retry path),
@@ -533,6 +640,13 @@ export default function Chat() {
   }
 
   function stop() {
+    const api = apiRef.current;
+    if (api) {
+      // Ask the agent to stop the run, then drop the stream (which also
+      // interrupts it if the stop call didn't land).
+      (api.runId ? stopRun(api.runId).catch(() => {}) : Promise.resolve()).finally(() => api.ctl.abort());
+      return;
+    }
     procRef.current?.kill("SIGINT");
   }
 
@@ -573,6 +687,8 @@ export default function Chat() {
             </button>
           );
         })()}
+        {(() => { const t = transportLabel(transport);
+          return <span className={`chat-transport ${t.mode}`} title={t.title}>{t.mode === "api" ? "api" : "cli"}</span>; })()}
         <span style={{ marginLeft: "auto" }}>session</span>
         <select
           className="session-select"
@@ -620,6 +736,10 @@ export default function Chat() {
           <div className="msg hermes">
             <div className="who">hermes</div>
             {liveAct && <Activity act={liveAct} defaultOpen={true} />}
+            {liveTurn?.approval && <ApprovalCard approval={liveTurn.approval} onChoose={chooseApproval} />}
+            {liveTurn && liveTurn.text && (
+              <div className="bubble streaming" dangerouslySetInnerHTML={{ __html: marked.parse(liveTurn.text) }} />
+            )}
             {liveDiff && <DiffBlock diff={liveDiff} defaultOpen live />}
           </div>
         )}

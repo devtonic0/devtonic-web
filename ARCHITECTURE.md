@@ -17,7 +17,7 @@
 | Code splitting | `src/panels/lazy.jsx`, `src/panels/code-langs.js` | Heavy panels load as separate chunks. `lazyPanel()` wraps `React.lazy` with a Suspense placeholder and an error boundary that offers a reload if a chunk fetch fails. Map (force-graph/d3) and Code (CodeMirror) are lazy in `TABS`. Inside the editor, each CodeMirror language pack (plus emmet for HTML/JSX/TSX) is a dynamic import, swapped in through a `Compartment` once it arrives. `langKeyFor()` is unit-tested, and `test/bundle-budget.test.mjs` fails if any built JS chunk is over 800 kB |
 | Browser panel | `src/panels/Browser.jsx`, `src/platform/frame-model.js`, `server/frame-check.mjs` | `<iframe>` preview with its own back/forward stack. Before framing a URL it asks the bridge (`/api/frame-check`) whether the response's `Content-Security-Policy: frame-ancestors` / `X-Frame-Options` headers forbid embedding by the UI's origin; blocked sites show an "Open in new tab" card (with "Try anyway"). URL normalisation, the nav stack and the header verdict are pure and unit-tested |
 | UI smoke test | `test/ui-smoke.test.mjs`, `test/helpers/cdp.mjs` | Dependency-free (only `ws`) headless-Chrome driver over the DevTools Protocol. Boots the bridge on a fixture `HOME` with a demo project, activates every default rc-dock tab plus the menu-only panels (Workspace, Settings, Help), waits for each active pane to render, lets polling panels tick, then asserts no `console.error`, uncaught exceptions or `Log` errors. Runs in CI after `npm run build` using the runner's preinstalled Chrome |
-| Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn), `/api/frame-check` |
+| Bridge server | `server/index.mjs` | Static host + `/api/env`, `/api/fs` (RPC), `/api/exec` (buffered), `/api/proc` (WS streaming spawn), `/api/frame-check`, `/api/agent/*` (agent API proxy, `server/agent-api.mjs`) |
 
 ## Project contract: `devtonic.config.json`
 
@@ -25,9 +25,19 @@ Lives at the project root. Holds `phases`, `features`, `architecture`, `todos`, 
 
 ## Agent integration
 
-The Chat panel shells out per turn:
-`<hermesPath()> --cli -z <msg> --continue <session>` and tails `~/.hermes/logs/agent.log` for the live activity feed.
-Planned: switch to a structured streaming API exposed by devtonic-agent (see ROADMAP).
+The Chat panel prefers the agent's HTTP API (Hermes / devtonic-agent `api_server`) and falls back to the CLI.
+
+**Agent API (structured streaming).** `server/agent-api.mjs` mounts `/api/agent/*` on the bridge:
+
+- `GET /api/agent/status` probes `GET /health` and `GET /v1/capabilities` and returns `{available, reason, url, keySource, version}` (`reason`: `ok | disabled | unreachable | no-key | unauthorized | unsupported`). Never includes the key.
+- `POST /api/agent/chat {session, message, instructions?, model?, provider?}` ensures the agent session exists (`GET /api/sessions/{id}`, else `POST /api/sessions {id}`) and pipes `POST /api/sessions/{id}/chat/stream` back as SSE unchanged. `instructions` (the mission context from `chatContext()`) goes as the agent's ephemeral `system_message`, so it is not stored in the session transcript, and the agent keeps the conversation history server-side (no transcript replay as in the CLI path). If the browser disconnects, the upstream request is aborted, which interrupts the run. Errors before streaming come back as JSON with `code: agent_unreachable | agent_error | bad_request`.
+- `POST /api/agent/runs/:id/stop` and `POST /api/agent/runs/:id/approval {choice, request_id?}` forward to `/v1/runs/:id/stop|approval` (run ids are validated, approval bodies are reduced to `choice` + `request_id`).
+
+Config: `DEVTONIC_AGENT_URL` (default `http://127.0.0.1:<API_SERVER_PORT|8642>`), key from `DEVTONIC_AGENT_KEY` → `API_SERVER_KEY` env → `API_SERVER_KEY` in `$HERMES_HOME/.env` (default `~/.hermes/.env`); `DEVTONIC_AGENT_API=0` disables it. The bridge adds the bearer header, so the agent key never reaches the browser.
+
+On the client, `src/platform/agent.js` calls these routes (status is cached for 15 s) and `src/platform/agent-stream.js` holds the DOM-free pieces: an incremental SSE parser and `reduceTurn()`, which folds `run.started`, `assistant.delta|commentary|completed`, `tool.started|completed|failed|progress` (reasoning arrives as `tool.progress` with `_thinking`), `approval.request|responded`, `run.completed|failed|cancelled`, `error` and `done` into the turn state (activity entries, transcript, streamed text, pending approval). Unknown events are ignored. Chat renders the streamed reply live, shows an approval card with the agent's `choices`, and its stop button calls `runs/:id/stop` then aborts the stream. The `api`/`cli` badge in the chat header shows the transport and why. Covered by `test/agent-stream.test.mjs` (parser + reducer) and `test/agent-api.test.mjs` (config precedence, status classification, and the real bridge against a fake agent API server, including session creation, SSE passthrough, run controls and that the key is not leaked).
+
+**CLI fallback.** When the API is unavailable (or a turn fails to start), the panel shells out per turn: `<hermesPath()> --cli -z <msg> --continue <session>`, replays the recent transcript into the prompt (one-shot mode is stateless), and tails `~/.hermes/logs/agent.log` for the live activity feed.
 
 ## Bridge protocol
 
@@ -36,6 +46,7 @@ Planned: switch to a structured streaming API exposed by devtonic-agent (see ROA
 - `POST /api/exec {file, args, opts}` returns `{error, stdout, stderr}`
 - `WS /api/proc`: client sends `spawn | stdin | end | kill`; server sends `pid | out | err | error | close`
 - `GET /api/frame-check?url=<http(s) url>` fetches the page (6 s timeout, redirects followed) and returns `{ok, status, finalUrl, blocked, reason}` or `{ok:false, error}`
+- `GET /api/agent/status`, `POST /api/agent/chat` (SSE), `POST /api/agent/runs/:id/stop|approval`: see Agent integration
 
 All endpoints require the `x-devtonic-token` header or a `?token=` query param.
 

@@ -24,7 +24,9 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
   - [x] Convert the remaining sync callers (App worker reports + project open, `store.js` mission/legacy-migrate/scan helpers, Git's `gh` lookup); then remove sync XHR from the shim ([#16](https://github.com/devtonic0/devtonic-web/pull/16))
 
 ## Phase 3: Agent integration
-- [ ] Structured streaming chat via devtonic-agent's API (replace log tailing)
+- [x] Structured streaming chat via devtonic-agent's API (replace log tailing): bridge `/api/agent/*` proxy (key stays server-side), SSE turn reducer, streamed replies, tool steps, in-chat approvals, run stop; CLI + log tail kept as fallback
+  - [ ] Show a one-click "enable the agent API" hint (generates `API_SERVER_KEY` into the agent's `.env` via Secrets) when the badge says `cli` because the API is off
+  - [ ] Pin the session's model with `POST /api/sessions/{id}/model` when smart routing picks a different tier, instead of passing `model` per turn
 - [ ] Session list and resume from agent API
 - [x] First-run onboarding: detect missing agent and show install instructions (wizard with per-platform steps + broken `DEVTONIC_HERMES` detection, persistent banner after skip) ([#18](https://github.com/devtonic0/devtonic-web/pull/18))
 

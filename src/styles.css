@@ -327,6 +327,25 @@ webview { flex: 1; background: white; }
 .act-icon { display: inline-block; width: 16px; color: var(--ok); }
 .act-line.error .act-icon { color: var(--red); }
 .act-line.think .act-icon { color: var(--accent2); }
+/* agent-API turns: transport badge, approval prompt, streaming reply */
+.chat-transport {
+  font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  border: 1px solid var(--border); color: var(--dim); cursor: help;
+}
+.chat-transport.api { color: var(--ok); border-color: rgba(80,200,120,.45); }
+.approval-card {
+  margin: 6px 0; padding: 10px 12px; border: 1px solid rgba(255,170,60,.55);
+  border-radius: 10px; background: rgba(255,170,60,.06); font-size: 12px;
+}
+.approval-title { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
+.approval-desc { color: var(--dim); margin-bottom: 6px; }
+.approval-cmd {
+  margin: 0 0 8px; padding: 6px 8px; background: #0d1119; border-radius: 6px;
+  font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all;
+}
+.approval-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-btn.danger { color: var(--red); }
+.bubble.streaming { opacity: .92; }
 .diff-pre {
   margin: 6px 0 0; font-family: var(--mono); font-size: 11px; line-height: 1.5;
   white-space: pre-wrap; word-break: break-all; max-height: 340px; overflow-y: auto;
