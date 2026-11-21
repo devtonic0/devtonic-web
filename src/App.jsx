@@ -14,7 +14,7 @@ import Config from "./panels/Config.jsx";
 import Secrets from "./panels/Secrets.jsx";
 import Usage from "./panels/Usage.jsx";
 import Workspace from "./panels/Workspace.jsx";
-import Setup from "./panels/Setup.jsx";
+import Setup, { AgentBanner } from "./panels/Setup.jsx";
 import Database from "./panels/Database.jsx";
 import Settings from "./panels/Settings.jsx";
 import Help from "./panels/Help.jsx";
@@ -35,6 +35,7 @@ import logoUrl from "../assets/logo-small.png";
 import { pickFolder, reloadApp, setUiScale, notify } from "./platform/web.js";
 import { scanWorkerReports, formatWorkerReport } from "./platform/worker-reports.js";
 import { hermesFound } from "./platform/hermes.js";
+import { shouldShowWizard, shouldShowBanner } from "./platform/onboarding-model.js";
 
 const TABS = {
   chat: { id: "chat", title: "⚡ Hermes", content: <Chat />, closable: true },
@@ -157,10 +158,11 @@ export default function App() {
   const [theme, setTheme] = useState(loadSettings().theme ?? "dark");
   const [menuOpen, setMenuOpen] = useState(false);
   const [projMenu, setProjMenu] = useState(false);
-  const [needsSetup, setNeedsSetup] = useState(() => {
-    const done = loadSettings().setupDone;
-    return !done && !hermesFound();
-  });
+  const [needsSetup, setNeedsSetup] = useState(() =>
+    shouldShowWizard({ setupDone: loadSettings().setupDone, found: hermesFound() }));
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const showAgentBanner = !needsSetup &&
+    shouldShowBanner({ setupDone: loadSettings().setupDone, found: hermesFound(), dismissed: bannerDismissed });
   const [ask, setAsk] = useState(null); // { title, value, cb }
   const [setupRoot, setSetupRoot] = useState(null); // trigger auto-setup modal
   // Check if project needs setup; show modal or open it as-is.
@@ -294,6 +296,7 @@ export default function App() {
         </button>
       </div>
       {needsSetup && <Setup onDone={() => { saveSettings({ setupDone: true }); setNeedsSetup(false); }} />}
+      {showAgentBanner && <AgentBanner onOpenSetup={() => setNeedsSetup(true)} onDismiss={() => setBannerDismissed(true)} />}
       <RestartBanner />
       {setupRoot && (
         <Autosetup

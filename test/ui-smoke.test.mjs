@@ -32,7 +32,7 @@ const MENU_PANELS = ["⇪ Workspace", "⚙ Settings", "? Help"];
 
 // Isolated HOME with a tiny project so panels have something to read and the
 // user's real settings/mission files are never touched.
-function fixtureHome() {
+function fixtureHome({ setupDone = true } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "devtonic-smoke-"));
   const proj = path.join(home, "demo-project");
   fs.mkdirSync(proj, { recursive: true });
@@ -43,13 +43,13 @@ function fixtureHome() {
   }, null, 2));
   fs.writeFileSync(path.join(proj, "README.md"), "# demo\n");
   fs.writeFileSync(path.join(home, ".hermes-mission-control.json"), JSON.stringify({
-    setupDone: true, lastProject: proj, recentProjects: [proj],
+    setupDone, lastProject: proj, recentProjects: [proj],
   }));
   return home;
 }
 
-async function bootServer(home) {
-  const env = { ...process.env, HOME: home, USERPROFILE: home, DEVTONIC_PORT: String(PORT), DEVTONIC_TOKEN: TOKEN };
+async function bootServer(home, extraEnv = {}) {
+  const env = { ...process.env, HOME: home, USERPROFILE: home, DEVTONIC_PORT: String(PORT), DEVTONIC_TOKEN: TOKEN, ...extraEnv };
   const p = spawn(process.execPath, ["server/index.mjs"], { env, stdio: ["ignore", "pipe", "pipe"] });
   await new Promise((res, rej) => {
     p.stdout.on("data", d => String(d).includes("running") && res());
@@ -125,6 +125,53 @@ test("ui smoke: every panel renders without console errors", { skip, timeout: 12
 
     // Let polling panels (Tasks, Usage, Workers, worker-report poller) tick.
     await new Promise(r => setTimeout(r, 4500));
+    const real = errors.filter(e => !ignorable(e));
+    assert.deepEqual(real, [], `console errors:\n${real.join("\n")}`);
+  } finally {
+    await browser.close();
+    srv.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// First-run onboarding: with no usable agent the wizard shows install steps;
+// skipping it leaves a non-blocking banner that can reopen the wizard.
+// DEVTONIC_HERMES at a nonexistent path makes "agent missing" deterministic
+// regardless of what is installed on the machine.
+test("ui smoke: first-run onboarding when the agent is missing", { skip, timeout: 60000 }, async () => {
+  assert.ok(chrome, "CI needs Chrome/Chromium for the UI smoke test (set DEVTONIC_CHROME)");
+  const home = fixtureHome({ setupDone: false });
+  const srv = await bootServer(home, { DEVTONIC_HERMES: path.join(home, "no-such-agent") });
+  const browser = await launchChrome(chrome);
+  const errors = [];
+  try {
+    const { send, on, evaluate } = browser;
+    on("Runtime.exceptionThrown", p => errors.push(`exception: ${p.exceptionDetails.exception?.description ?? p.exceptionDetails.text}`));
+    on("Runtime.consoleAPICalled", p => {
+      if (p.type === "error") errors.push(`console.error: ${p.args.map(a => a.value ?? a.description ?? "").join(" ")}`);
+    });
+    await send("Runtime.enable");
+    await send("Page.enable");
+    await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/?token=${TOKEN}` });
+
+    const wizardText = () => evaluate(`document.querySelector("[data-testid=setup-wizard]")?.textContent ?? ""`);
+    await waitFor(wizardText, { label: "setup wizard", timeout: 20000 });
+    const text = await wizardText();
+    assert.match(text, /DEVTONIC_HERMES points at a missing binary/);
+    assert.match(text, /install\.(sh|ps1)/, "manual install command is shown");
+    assert.match(text, /hermes model/);
+    assert.equal(await evaluate(`document.querySelectorAll(".setup-steps li").length > 2`), true);
+
+    const click = label => evaluate(`(() => {
+      const b = [...document.querySelectorAll("button")].find(b => b.textContent.trim().startsWith(${JSON.stringify(label)}));
+      if (!b) return false; b.click(); return true;
+    })()`);
+    assert.ok(await click("skip for now"));
+    await waitFor(() => evaluate(`!document.querySelector("[data-testid=setup-wizard]") && !!document.querySelector("[data-testid=agent-banner]")`),
+      { label: "agent banner after skip" });
+    assert.ok(await click("install instructions"));
+    await waitFor(() => evaluate(`!!document.querySelector("[data-testid=setup-wizard]")`), { label: "wizard reopened from banner" });
+
     const real = errors.filter(e => !ignorable(e));
     assert.deepEqual(real, [], `console errors:\n${real.join("\n")}`);
   } finally {

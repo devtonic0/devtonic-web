@@ -23,7 +23,7 @@ npm start          # prints http://127.0.0.1:4777/?token=… and opens it
 
 You need Node ≥ 20 on Linux or macOS. For the chat panel, install Hermes first: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` (or devtonic-agent).
 
-The bridge looks for the agent CLI in this order: the `DEVTONIC_HERMES` env var (e.g. `DEVTONIC_HERMES=/path/to/devtonic-agent npm start`), then `hermes` on `PATH`, then common install directories (`~/.local/bin`, `~/.hermes/bin`, `/opt/homebrew/bin`, `/usr/local/bin`). On startup the server prints which binary it picked.
+The bridge looks for the agent CLI in this order: the `DEVTONIC_HERMES` env var (e.g. `DEVTONIC_HERMES=/path/to/devtonic-agent npm start`), then `hermes` on `PATH`, then common install directories (`~/.local/bin`, `~/.hermes/bin`, `/opt/homebrew/bin`, `/usr/local/bin`). On startup the server prints which binary it picked. If no agent is found, the UI opens a first-run setup screen with copyable install steps for your platform (and can run the official installer for you); if you skip it, a banner stays at the top with a re-check button until the agent is installed.
 
 ### Development
 
