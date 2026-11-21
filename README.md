@@ -25,6 +25,8 @@ You need Node ≥ 20 on Linux or macOS. For the chat panel, install Hermes first
 
 The bridge looks for the agent CLI in this order: the `DEVTONIC_HERMES` env var (e.g. `DEVTONIC_HERMES=/path/to/devtonic-agent npm start`), then `hermes` on `PATH`, then common install directories (`~/.local/bin`, `~/.hermes/bin`, `/opt/homebrew/bin`, `/usr/local/bin`). On startup the server prints which binary it picked. If no agent is found, the UI opens a first-run setup screen with copyable install steps for your platform (and can run the official installer for you); if you skip it, a banner stays at the top with a re-check button until the agent is installed.
 
+**Structured streaming chat (recommended):** when the agent's API server is running (set a strong `API_SERVER_KEY` in the agent's `.env`, which enables it, then start the gateway with `hermes gateway`), the chat panel streams each turn over the agent's HTTP API instead of spawning the CLI and tailing `agent.log`. You get the reply token by token, per-tool start/finish steps, reasoning, a stop button that cancels the run, and **approval prompts for dangerous commands right in the chat**. The bridge proxies `/api/agent/*` to `http://127.0.0.1:8642` (override with `DEVTONIC_AGENT_URL`, or the agent's `API_SERVER_PORT`) and adds the API key itself (`DEVTONIC_AGENT_KEY`, else `API_SERVER_KEY` from the environment or `$HERMES_HOME/.env`), so the key never reaches the browser. The badge next to the model name shows `api` or `cli`; hover it to see why. Set `DEVTONIC_AGENT_API=0` to always use the CLI. If the API can't start a turn, the panel falls back to the CLI for that turn.
+
 ### Development
 
 ```bash

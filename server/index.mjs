@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { resolveHermes } from "./hermes.mjs";
 import { checkFrame } from "./frame-check.mjs";
+import { handleAgentRoute } from "./agent-api.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "..", "dist");
@@ -94,6 +95,7 @@ const server = http.createServer(async (req, res) => {
       const result = await checkFrame(url.searchParams.get("url") || "", embedder);
       res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(result));
     }
+    if (await handleAgentRoute(req, res, url.pathname, { readBody })) return;
     res.writeHead(404); return res.end();
   }
   // static
