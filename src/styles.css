@@ -691,6 +691,13 @@ webview { flex: 1; background: white; }
 .setup-checks { margin: 6px 0 12px; }
 .setup-check { font-size: 13px; padding: 4px 0; display: flex; gap: 8px; align-items: center; }
 .setup-log { max-height: 220px; margin-top: 10px; }
+.setup-agent-msg { font-size: 13px; margin: 4px 0 8px; }
+.setup-steps { margin: 0 0 12px; padding-left: 20px; font-size: 12px; }
+.setup-steps li { margin: 6px 0; }
+.setup-step-label { opacity: 0.8; margin-bottom: 3px; }
+.setup-cmd { display: flex; gap: 6px; align-items: center; }
+.setup-cmd code { flex: 1; overflow-x: auto; white-space: nowrap; padding: 4px 6px; border-radius: 4px; background: rgba(127,127,127,0.12); }
+.agent-banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 12px; background: rgba(251,191,36,0.10); border-bottom: 1px solid var(--warn); color: var(--text); }
 
 /* map key */
 .key-toggle {

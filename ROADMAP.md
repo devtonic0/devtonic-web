@@ -12,7 +12,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 - [x] Browser panel: detect frame-blocked sites and offer "open in new tab" ([#8](https://github.com/devtonic0/devtonic-web/pull/8))
 
 ## Phase 2: Quality
-- [ ] ESLint + Prettier config and CI step
+- [ ] ESLint + Prettier config and CI step (needs new devDependencies; the unattended loop's package-install guard blocks this, so it needs a maintainer-run `npm i -D`)
 - [x] Unit tests for `store.js` config IO and `routing.js` tier selection (also fixes the config watcher, which never fired in the browser shim) ([#9](https://github.com/devtonic0/devtonic-web/pull/9))
 - [x] UI smoke test: boot server, load UI, assert each default panel renders without console errors (headless Chrome over CDP instead of Playwright, no new dependency) ([#17](https://github.com/devtonic0/devtonic-web/pull/17))
 - [x] Async fs migration (first slice): add `fs.promises` to shim; async `fs.watch`; convert polling panels Tasks, Usage, Workers off sync XHR ([#10](https://github.com/devtonic0/devtonic-web/pull/10))
@@ -26,7 +26,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 ## Phase 3: Agent integration
 - [ ] Structured streaming chat via devtonic-agent's API (replace log tailing)
 - [ ] Session list and resume from agent API
-- [ ] First-run onboarding: detect missing agent and show install instructions
+- [x] First-run onboarding: detect missing agent and show install instructions (wizard with per-platform steps + broken `DEVTONIC_HERMES` detection, persistent banner after skip) ([#18](https://github.com/devtonic0/devtonic-web/pull/18))
 
 ## Phase 4: Distribution
 - [ ] `npx devtonic-web` publish (npm), including build-on-install or prebuilt `dist/`
