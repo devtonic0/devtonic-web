@@ -5,6 +5,7 @@
 // never reaches the browser: the bridge reads it from the environment or the
 // agent's .env and adds the bearer header itself. Everything here is pure or
 // takes an injected fetch, so it is tested against a fake agent server.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -44,7 +45,50 @@ export function agentConfig(env = process.env, { home = os.homedir(), readFile =
   if (env.DEVTONIC_AGENT_KEY) { key = env.DEVTONIC_AGENT_KEY; keySource = "DEVTONIC_AGENT_KEY"; }
   else if (env.API_SERVER_KEY) { key = env.API_SERVER_KEY; keySource = "env"; }
   else if (dotenv.API_SERVER_KEY) { key = dotenv.API_SERVER_KEY; keySource = "dotenv"; }
-  return { url, key, keySource, disabled };
+  return { url, key, keySource, disabled, envFile: path.join(hermesHome, ".env") };
+}
+
+/** Set KEY=VALUE in .env text, keeping every other line; appends when absent. */
+export function upsertDotenv(text, key, value) {
+  const src = String(text || "");
+  if (!src.trim()) return `${key}=${value}\n`;
+  let found = false;
+  const lines = src.split("\n").map(line => {
+    const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+    if (m && m[2] === key) { found = true; return `${m[1]}${key}=${value}`; }
+    return line;
+  });
+  if (!found) {
+    if (lines[lines.length - 1] === "") lines.pop();
+    lines.push(`${key}=${value}`, "");
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Turn the agent API on by generating a strong API_SERVER_KEY (64 hex chars;
+ * the agent's api_server needs >= 16) into the agent's .env. Only when no key
+ * is configured anywhere, so an existing key is never overwritten. The key is
+ * not returned: the bridge reads it back from the .env on every request.
+ * Returns {ok, file, restart} or {ok:false, code, error}.
+ */
+export function enableAgentApi(cfg, { fsImpl = fs, randomBytes = crypto.randomBytes } = {}) {
+  if (cfg.disabled) return { ok: false, code: "disabled", error: "DEVTONIC_AGENT_API is off" };
+  if (cfg.key) return { ok: false, code: "has-key", error: `an agent API key is already configured (${cfg.keySource})` };
+  let existing = "";
+  try { existing = fsImpl.readFileSync(cfg.envFile, "utf8"); }
+  catch (e) { if (e.code !== "ENOENT") return { ok: false, code: "io", error: e.message }; }
+  if (parseDotenv(existing).API_SERVER_KEY) return { ok: false, code: "has-key", error: "API_SERVER_KEY is already set in the agent's .env" };
+  const key = randomBytes(32).toString("hex");
+  try {
+    fsImpl.mkdirSync(path.dirname(cfg.envFile), { recursive: true });
+    fsImpl.writeFileSync(cfg.envFile, upsertDotenv(existing, "API_SERVER_KEY", key), { mode: 0o600 });
+    try { fsImpl.chmodSync(cfg.envFile, 0o600); } catch {}
+  } catch (e) {
+    return { ok: false, code: "io", error: e.message };
+  }
+  // A gateway that is already running read its .env at startup.
+  return { ok: true, file: cfg.envFile, restart: true };
 }
 
 const authHeaders = cfg => (cfg.key ? { authorization: `Bearer ${cfg.key}` } : {});
@@ -124,12 +168,18 @@ const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type":
  *   POST /api/agent/chat                 {session, message, instructions?, model?, provider?} -> SSE passthrough
  *   POST /api/agent/runs/:id/stop
  *   POST /api/agent/runs/:id/approval    {choice, request_id?}
+ *   POST /api/agent/enable               generate API_SERVER_KEY into the agent's .env
  */
 export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody } = {}) {
   if (!pathname.startsWith("/api/agent/")) return false;
   const cfg = getConfig();
   if (pathname === "/api/agent/status" && req.method === "GET") {
     sendJson(res, 200, await agentStatus(cfg, { fetchImpl }));
+    return true;
+  }
+  if (pathname === "/api/agent/enable" && req.method === "POST") {
+    const out = enableAgentApi(cfg);
+    sendJson(res, out.ok ? 200 : out.code === "io" ? 500 : 409, out);
     return true;
   }
   if (pathname === "/api/agent/chat" && req.method === "POST") {

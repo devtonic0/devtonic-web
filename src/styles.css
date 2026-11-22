@@ -333,6 +333,17 @@ webview { flex: 1; background: white; }
   border: 1px solid var(--border); color: var(--dim); cursor: help;
 }
 .chat-transport.api { color: var(--ok); border-color: rgba(80,200,120,.45); }
+.agent-api-hint {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px;
+  font-size: 12px; border-bottom: 1px solid var(--border); background: rgba(120,160,255,.06);
+}
+.agent-api-hint.fix-key { background: rgba(255,170,60,.08); }
+.agent-api-hint-text { flex: 1 1 260px; color: var(--text); }
+.agent-api-hint-cmd {
+  font-family: var(--mono); font-size: 11px; padding: 2px 6px; border-radius: 6px;
+  border: 1px solid var(--border); cursor: copy; white-space: nowrap;
+}
+.agent-api-hint-err { color: var(--red); }
 .approval-card {
   margin: 6px 0; padding: 10px 12px; border: 1px solid rgba(255,170,60,.55);
   border-radius: 10px; background: rgba(255,170,60,.06); font-size: 12px;

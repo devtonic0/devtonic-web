@@ -144,3 +144,36 @@ export function transportLabel(status) {
     unsupported: "agent API has no session chat streaming" }[status.reason] || status.reason;
   return { mode: "cli", title: `CLI + log tail (${why}${status.detail && !why.includes(status.detail) ? `: ${status.detail}` : ""})` };
 }
+
+export const GATEWAY_RESTART_CMD = "hermes gateway restart";
+
+/**
+ * What the Chat panel should suggest when a turn would use the CLI because the
+ * agent API is off. `enabled` is true right after /api/agent/enable wrote a key.
+ *   {kind: "enable"}   no key anywhere: one click generates API_SERVER_KEY
+ *   {kind: "restart"}  key set but the API isn't up: (re)start the gateway
+ *   {kind: "fix-key"}  the agent rejects the key the bridge has
+ *   null               API available, disabled on purpose, still checking, or not fixable from here
+ */
+export function agentApiHint(status, { enabled = false } = {}) {
+  if (!status || status.available || status.reason === "disabled") return null;
+  const noKey = status.reason === "no-key" || (status.reason === "unreachable" && status.keySource === "none");
+  if (noKey && !enabled) return {
+    kind: "enable",
+    text: "Chat is using the CLI fallback. Turn on the agent API for streamed replies, live tool steps and in-chat approvals.",
+    action: "enable agent API",
+  };
+  if (noKey || status.reason === "unreachable") return {
+    kind: "restart",
+    text: enabled
+      ? "API key written to the agent's .env. Restart the agent gateway so it picks it up, then re-check."
+      : "An agent API key is set, but the API isn't reachable. Start or restart the agent gateway, then re-check.",
+    command: GATEWAY_RESTART_CMD,
+  };
+  if (status.reason === "unauthorized") return {
+    kind: "fix-key",
+    text: "The agent API rejected the bridge's key. Make DEVTONIC_AGENT_KEY / API_SERVER_KEY match the agent's API_SERVER_KEY, then restart the agent gateway.",
+    command: GATEWAY_RESTART_CMD,
+  };
+  return null;
+}

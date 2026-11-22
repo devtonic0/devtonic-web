@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSSEParser, initialTurn, reduceTurn, turnReply, transportLabel } from "../src/platform/agent-stream.js";
+import { createSSEParser, initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, GATEWAY_RESTART_CMD } from "../src/platform/agent-stream.js";
 
 const frames = evs => evs.map(([e, d]) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`).join("");
 
@@ -88,4 +88,20 @@ test("transport label explains why the CLI is used", () => {
   assert.equal(off.mode, "cli");
   assert.match(off.title, /API_SERVER_KEY/);
   assert.equal(transportLabel(null).mode, "cli");
+});
+
+test("agentApiHint: enable when no key, restart once a key exists, nothing when available or disabled", () => {
+  assert.equal(agentApiHint(null), null);
+  assert.equal(agentApiHint({ available: true, reason: "ok" }), null);
+  assert.equal(agentApiHint({ available: false, reason: "disabled", keySource: "none" }), null);
+  assert.equal(agentApiHint({ available: false, reason: "unsupported", keySource: "env" }), null);
+  // Gateway down and no key anywhere, or gateway up without a key: offer to generate one.
+  assert.equal(agentApiHint({ available: false, reason: "unreachable", keySource: "none" }).kind, "enable");
+  assert.equal(agentApiHint({ available: false, reason: "no-key", keySource: "none" }).kind, "enable");
+  // Right after the key was written the gateway still needs a restart.
+  const after = agentApiHint({ available: false, reason: "no-key", keySource: "dotenv" }, { enabled: true });
+  assert.equal(after.kind, "restart");
+  assert.equal(after.command, GATEWAY_RESTART_CMD);
+  assert.equal(agentApiHint({ available: false, reason: "unreachable", keySource: "dotenv" }).kind, "restart");
+  assert.equal(agentApiHint({ available: false, reason: "unauthorized", keySource: "env" }).kind, "fix-key");
 });
