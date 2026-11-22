@@ -7,8 +7,9 @@ import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
-import { agentStatus, streamAgentChat, respondApproval, stopRun } from "../platform/agent.js";
-import { initialTurn, reduceTurn, turnReply, transportLabel } from "../platform/agent-stream.js";
+import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi } from "../platform/agent.js";
+import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint } from "../platform/agent-stream.js";
+import { copyText } from "../platform/web.js";
 
 // Real Hermes chat with live activity feed + per-turn git diffs.
 // Preferred transport: the agent's HTTP API (structured SSE events: deltas,
@@ -122,6 +123,48 @@ function gitDiff(cb) {
       cb({ full: out || "", stat: stat || "" });
     });
   });
+}
+
+// Shown under the chat header when turns go through the CLI because the agent
+// API is off or misconfigured (see agentApiHint()).
+const HINT_DISMISS_KEY = "devtonic-agent-api-hint-dismissed";
+function AgentApiHint({ status, onStatus }) {
+  const [enabled, setEnabled] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(HINT_DISMISS_KEY) === "1");
+  const hint = agentApiHint(status, { enabled });
+  if (!hint || dismissed) return null;
+  const recheck = async () => {
+    setWorking(true); setError("");
+    try { onStatus(await agentStatus({ force: true })); } finally { setWorking(false); }
+  };
+  const enable = async () => {
+    setWorking(true); setError("");
+    const r = await enableAgentApi();
+    if (r.ok || r.code === "has-key") setEnabled(true);
+    if (!r.ok && r.code !== "has-key") setError(r.error || "could not write the key");
+    onStatus(await agentStatus({ force: true }));
+    setWorking(false);
+  };
+  return (
+    <div className={`agent-api-hint ${hint.kind}`} role="status">
+      <span className="agent-api-hint-text">{hint.text}</span>
+      {hint.command && (
+        <code className="agent-api-hint-cmd" title="click to copy"
+              onClick={async () => { if (await copyText(hint.command)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}>
+          {copied ? "copied ✓" : hint.command}
+        </code>
+      )}
+      {hint.kind === "enable"
+        ? <button className="tb-btn" disabled={working} onClick={enable}>{working ? "…" : hint.action}</button>
+        : <button className="tb-btn" disabled={working} onClick={recheck}>{working ? "…" : "re-check"}</button>}
+      {error && <span className="agent-api-hint-err">{error}</span>}
+      <button className="tb-btn ghost" title="hide until the next reload"
+              onClick={() => { sessionStorage.setItem(HINT_DISMISS_KEY, "1"); setDismissed(true); }}>✕</button>
+    </div>
+  );
 }
 
 function ApprovalCard({ approval, onChoose }) {
@@ -721,6 +764,7 @@ export default function Chat() {
           }}
         >🔑 env</button>
       </div>
+      <AgentApiHint status={transport} onStatus={setTransport} />
       <div className="chat-scroll" ref={scrollRef}>
         {messages.map((m, i) => (
           m.who === "system"

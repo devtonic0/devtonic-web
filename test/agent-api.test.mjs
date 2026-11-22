@@ -2,9 +2,51 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { parseDotenv, agentConfig, agentStatus, chatRequestBody } from "../server/agent-api.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { parseDotenv, agentConfig, agentStatus, chatRequestBody, upsertDotenv, enableAgentApi } from "../server/agent-api.mjs";
 
 const KEY = "fake-agent-key";
+
+test("upsertDotenv keeps other lines and replaces or appends the key", () => {
+  assert.equal(upsertDotenv("", "K", "v"), "K=v\n");
+  assert.equal(upsertDotenv("A=1\n# c\n", "K", "v"), "A=1\n# c\nK=v\n");
+  assert.equal(upsertDotenv("A=1", "K", "v"), "A=1\nK=v\n");
+  assert.equal(upsertDotenv("export K=old\nB=2\n", "K", "new"), "export K=new\nB=2\n");
+});
+
+test("enableAgentApi writes a strong key once, mode 0600, and never overwrites one", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "devtonic-enable-"));
+  try {
+    const hermesHome = path.join(home, "agent-home");
+    const env = { HERMES_HOME: hermesHome };
+    const file = path.join(hermesHome, ".env");
+    // .env doesn't exist yet: the directory and file are created.
+    const r = enableAgentApi(agentConfig(env, { home }));
+    assert.deepEqual(r, { ok: true, file, restart: true });
+    const key = parseDotenv(fs.readFileSync(file, "utf8")).API_SERVER_KEY;
+    assert.match(key, /^[0-9a-f]{64}$/);
+    if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    const cfg = agentConfig(env, { home });
+    assert.equal(cfg.key, key);
+    assert.equal(cfg.keySource, "dotenv");
+    // Second call: already configured, file untouched.
+    assert.equal(enableAgentApi(cfg).code, "has-key");
+    assert.equal(parseDotenv(fs.readFileSync(file, "utf8")).API_SERVER_KEY, key);
+    // Existing .env content is preserved.
+    fs.writeFileSync(file, "OPENAI_API_KEY=sk-x\n");
+    assert.equal(enableAgentApi(agentConfig(env, { home })).ok, true);
+    const vars = parseDotenv(fs.readFileSync(file, "utf8"));
+    assert.equal(vars.OPENAI_API_KEY, "sk-x");
+    assert.match(vars.API_SERVER_KEY, /^[0-9a-f]{64}$/);
+    // A key from the environment, or a disabled API, blocks it too.
+    fs.writeFileSync(file, "");
+    assert.equal(enableAgentApi(agentConfig({ ...env, API_SERVER_KEY: "k".repeat(20) }, { home })).code, "has-key");
+    assert.equal(enableAgentApi(agentConfig({ ...env, DEVTONIC_AGENT_API: "0" }, { home })).code, "disabled");
+    assert.equal(fs.readFileSync(file, "utf8"), "");
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
 
 test("parseDotenv handles export, quotes and comments", () => {
   assert.deepEqual(parseDotenv("export A=1\nB=\"two words\"\nC='x' \nD=plain # note\n# E=no\nbad line"),
@@ -15,7 +57,8 @@ test("agentConfig: precedence of URL, port and key sources", () => {
   const dot = "API_SERVER_KEY=fromdot\nAPI_SERVER_PORT=9001\n";
   const read = () => dot;
   let c = agentConfig({}, { home: "/h", readFile: read });
-  assert.deepEqual(c, { url: "http://127.0.0.1:9001", key: "fromdot", keySource: "dotenv", disabled: false });
+  assert.deepEqual(c, { url: "http://127.0.0.1:9001", key: "fromdot", keySource: "dotenv", disabled: false,
+    envFile: path.join("/h", ".hermes", ".env") });
   c = agentConfig({ API_SERVER_KEY: "envk", API_SERVER_PORT: "9002" }, { home: "/h", readFile: read });
   assert.equal(c.keySource, "env");
   assert.equal(c.url, "http://127.0.0.1:9002");
@@ -151,4 +194,32 @@ test("bridge /api/agent/chat reports agent_unreachable so the UI can fall back t
     assert.equal(st.available, false);
     assert.equal(st.reason, "unreachable");
   } finally { bridge.kill(); }
+});
+
+test("bridge POST /api/agent/enable writes the key into the agent's .env without returning it", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "devtonic-enable-bridge-"));
+  const PORT = 4783, TOKEN = "agenttok3";
+  const env = { ...process.env, DEVTONIC_PORT: String(PORT), DEVTONIC_TOKEN: TOKEN, HERMES_HOME: home,
+    DEVTONIC_AGENT_URL: "http://127.0.0.1:1", DEVTONIC_AGENT_API: "" };
+  delete env.DEVTONIC_AGENT_KEY; delete env.API_SERVER_KEY;
+  const bridge = spawn(process.execPath, ["server/index.mjs"], { env });
+  try {
+    await new Promise((res, rej) => { bridge.stdout.on("data", d => String(d).includes("running") && res()); bridge.on("error", rej); setTimeout(() => rej(new Error("boot timeout")), 5000); });
+    const base = `http://127.0.0.1:${PORT}`;
+    const h = { "x-devtonic-token": TOKEN, "content-type": "application/json" };
+    assert.equal((await fetch(`${base}/api/agent/enable`, { method: "POST" })).status, 401);
+    const before = await (await fetch(`${base}/api/agent/status`, { headers: h })).json();
+    assert.equal(before.keySource, "none");
+    const r = await fetch(`${base}/api/agent/enable`, { method: "POST", headers: h, body: "{}" });
+    assert.equal(r.status, 200);
+    const text = await r.text();
+    const key = parseDotenv(fs.readFileSync(path.join(home, ".env"), "utf8")).API_SERVER_KEY;
+    assert.match(key, /^[0-9a-f]{64}$/);
+    assert.ok(!text.includes(key), "enable must not return the key");
+    assert.equal(JSON.parse(text).restart, true);
+    // The bridge picks the new key up on the next request.
+    const after = await (await fetch(`${base}/api/agent/status`, { headers: h })).json();
+    assert.equal(after.keySource, "dotenv");
+    assert.equal((await fetch(`${base}/api/agent/enable`, { method: "POST", headers: h, body: "{}" })).status, 409);
+  } finally { bridge.kill(); fs.rmSync(home, { recursive: true, force: true }); }
 });
