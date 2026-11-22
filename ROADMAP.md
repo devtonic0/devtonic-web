@@ -25,7 +25,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 
 ## Phase 3: Agent integration
 - [x] Structured streaming chat via devtonic-agent's API (replace log tailing): bridge `/api/agent/*` proxy (key stays server-side), SSE turn reducer, streamed replies, tool steps, in-chat approvals, run stop; CLI + log tail kept as fallback ([#19](https://github.com/devtonic0/devtonic-web/pull/19))
-  - [x] Show a one-click "enable the agent API" hint (generates `API_SERVER_KEY` into the agent's `.env`) when the badge says `cli` because the API is off; also explains restart / rejected-key states (PR_LINK)
+  - [x] Show a one-click "enable the agent API" hint (generates `API_SERVER_KEY` into the agent's `.env`) when the badge says `cli` because the API is off; also explains restart / rejected-key states ([#20](https://github.com/devtonic0/devtonic-web/pull/20))
     - [ ] Optionally restart the agent gateway from the hint (`hermes gateway restart` via the bridge) instead of copy-paste
   - [ ] Pin the session's model with `POST /api/sessions/{id}/model` when smart routing picks a different tier, instead of passing `model` per turn
 - [ ] Session list and resume from agent API
