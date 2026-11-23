@@ -148,6 +148,21 @@ export function transportLabel(status) {
 export const GATEWAY_RESTART_CMD = "hermes gateway restart";
 
 /**
+ * After the gateway restarts its API takes a moment to come up. Probe until it
+ * is available, the state can't improve by waiting (rejected key, disabled),
+ * or `tries` run out. Returns the last status.
+ */
+export async function waitForAgent(probe, { tries = 10, delayMs = 1500, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  let st = null;
+  for (let i = 0; i < tries; i++) {
+    if (i) await sleep(delayMs);
+    st = await probe();
+    if (st?.available || st?.reason === "unauthorized" || st?.reason === "disabled") break;
+  }
+  return st;
+}
+
+/**
  * What the Chat panel should suggest when a turn would use the CLI because the
  * agent API is off. `enabled` is true right after /api/agent/enable wrote a key.
  *   {kind: "enable"}   no key anywhere: one click generates API_SERVER_KEY
@@ -169,11 +184,13 @@ export function agentApiHint(status, { enabled = false } = {}) {
       ? "API key written to the agent's .env. Restart the agent gateway so it picks it up, then re-check."
       : "An agent API key is set, but the API isn't reachable. Start or restart the agent gateway, then re-check.",
     command: GATEWAY_RESTART_CMD,
+    ...(status.restartable ? { action: "restart gateway" } : {}),
   };
   if (status.reason === "unauthorized") return {
     kind: "fix-key",
     text: "The agent API rejected the bridge's key. Make DEVTONIC_AGENT_KEY / API_SERVER_KEY match the agent's API_SERVER_KEY, then restart the agent gateway.",
     command: GATEWAY_RESTART_CMD,
+    ...(status.restartable ? { action: "restart gateway" } : {}),
   };
   return null;
 }

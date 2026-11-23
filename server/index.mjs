@@ -95,7 +95,7 @@ const server = http.createServer(async (req, res) => {
       const result = await checkFrame(url.searchParams.get("url") || "", embedder);
       res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(result));
     }
-    if (await handleAgentRoute(req, res, url.pathname, { readBody })) return;
+    if (await handleAgentRoute(req, res, url.pathname, { readBody, getHermes: resolveHermes })) return;
     res.writeHead(404); return res.end();
   }
   // static
