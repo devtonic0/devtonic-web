@@ -73,4 +73,19 @@ export async function enableAgentApi() {
   }
 }
 
+/**
+ * Ask the bridge to restart the agent gateway through its CLI. Resolves
+ * {ok, output} or {ok:false, code, error}. Never throws.
+ */
+export async function restartAgentGateway() {
+  try {
+    const r = await fetch("/api/agent/restart", { method: "POST", headers: headers(true), body: "{}" });
+    const j = await r.json().catch(() => ({}));
+    cached = null;
+    return r.ok ? j : { ok: false, code: j.code || "error", error: j.error || `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, code: "error", error: e.message };
+  }
+}
+
 export const stopRun = runId => post(`/api/agent/runs/${encodeURIComponent(runId)}/stop`, {});

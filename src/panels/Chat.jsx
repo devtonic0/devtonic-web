@@ -7,8 +7,8 @@ import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
-import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi } from "../platform/agent.js";
-import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint } from "../platform/agent-stream.js";
+import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway } from "../platform/agent.js";
+import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, waitForAgent } from "../platform/agent-stream.js";
 import { copyText } from "../platform/web.js";
 
 // Real Hermes chat with live activity feed + per-turn git diffs.
@@ -148,6 +148,16 @@ function AgentApiHint({ status, onStatus }) {
     onStatus(await agentStatus({ force: true }));
     setWorking(false);
   };
+  const restart = async () => {
+    setWorking("restart"); setError("");
+    try {
+      const r = await restartAgentGateway();
+      if (!r.ok) { setError(r.error || "restart failed"); onStatus(await agentStatus({ force: true })); return; }
+      const st = await waitForAgent(() => agentStatus({ force: true }));
+      onStatus(st);
+      if (st && !st.available) setError("gateway restarted, but the agent API is still not available");
+    } finally { setWorking(false); }
+  };
   return (
     <div className={`agent-api-hint ${hint.kind}`} role="status">
       <span className="agent-api-hint-text">{hint.text}</span>
@@ -159,7 +169,10 @@ function AgentApiHint({ status, onStatus }) {
       )}
       {hint.kind === "enable"
         ? <button className="tb-btn" disabled={working} onClick={enable}>{working ? "…" : hint.action}</button>
-        : <button className="tb-btn" disabled={working} onClick={recheck}>{working ? "…" : "re-check"}</button>}
+        : <>
+            {hint.action && <button className="tb-btn" disabled={!!working} onClick={restart}>{working === "restart" ? "restarting…" : hint.action}</button>}
+            <button className="tb-btn" disabled={!!working} onClick={recheck}>{working === true ? "…" : "re-check"}</button>
+          </>}
       {error && <span className="agent-api-hint-err">{error}</span>}
       <button className="tb-btn ghost" title="hide until the next reload"
               onClick={() => { sessionStorage.setItem(HINT_DISMISS_KEY, "1"); setDismissed(true); }}>✕</button>

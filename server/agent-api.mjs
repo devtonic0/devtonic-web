@@ -6,6 +6,7 @@
 // agent's .env and adds the bearer header itself. Everything here is pure or
 // takes an injected fetch, so it is tested against a fake agent server.
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -91,6 +92,31 @@ export function enableAgentApi(cfg, { fsImpl = fs, randomBytes = crypto.randomBy
   return { ok: true, file: cfg.envFile, restart: true };
 }
 
+// argv for the CLI's gateway lifecycle command (no shell).
+export const GATEWAY_RESTART_ARGS = ["gateway", "restart"];
+const tail = (s, n = 2000) => { const t = String(s || "").trim(); return t.length > n ? `…${t.slice(-n)}` : t; };
+
+/**
+ * Restart the agent's gateway through its CLI so a running gateway re-reads
+ * its .env (e.g. right after enableAgentApi wrote API_SERVER_KEY). Uses the
+ * CLI the bridge resolved (resolveHermes) via execFile, never a shell.
+ * Resolves {ok, output} or
+ * {ok:false, code: "disabled" | "no-hermes" | "timeout" | "failed", error, output?}.
+ */
+export function restartAgentGateway(cfg, { hermes, execFileImpl = execFile, timeoutMs = 60000 } = {}) {
+  if (cfg.disabled) return Promise.resolve({ ok: false, code: "disabled", error: "DEVTONIC_AGENT_API is off" });
+  if (!hermes || !hermes.found) return Promise.resolve({ ok: false, code: "no-hermes",
+    error: hermes?.source === "env" ? `DEVTONIC_HERMES=${hermes.path} is not an executable file` : "hermes CLI not found; run the restart yourself" });
+  return new Promise(resolve => {
+    execFileImpl(hermes.path, GATEWAY_RESTART_ARGS, { timeout: timeoutMs, maxBuffer: 1e6, windowsHide: true }, (err, stdout, stderr) => {
+      const output = tail(`${stdout || ""}${stderr ? `\n${stderr}` : ""}`);
+      if (!err) return resolve({ ok: true, output });
+      if (err.killed) return resolve({ ok: false, code: "timeout", error: `restart timed out after ${Math.round(timeoutMs / 1000)}s`, output });
+      resolve({ ok: false, code: "failed", error: tail(stderr, 300) || err.message, output });
+    });
+  });
+}
+
 const authHeaders = cfg => (cfg.key ? { authorization: `Bearer ${cfg.key}` } : {});
 
 async function fetchWithTimeout(fetchImpl, url, opts = {}, ms = 2000) {
@@ -169,12 +195,21 @@ const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type":
  *   POST /api/agent/runs/:id/stop
  *   POST /api/agent/runs/:id/approval    {choice, request_id?}
  *   POST /api/agent/enable               generate API_SERVER_KEY into the agent's .env
+ *   POST /api/agent/restart              restart the agent gateway via its CLI
+ * Status also carries `restartable` (the bridge found a CLI to restart with).
  */
-export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody } = {}) {
+export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody,
+  getHermes = () => null, execFileImpl } = {}) {
   if (!pathname.startsWith("/api/agent/")) return false;
   const cfg = getConfig();
   if (pathname === "/api/agent/status" && req.method === "GET") {
-    sendJson(res, 200, await agentStatus(cfg, { fetchImpl }));
+    const st = await agentStatus(cfg, { fetchImpl });
+    sendJson(res, 200, { ...st, restartable: !cfg.disabled && !!getHermes()?.found });
+    return true;
+  }
+  if (pathname === "/api/agent/restart" && req.method === "POST") {
+    const out = await restartAgentGateway(cfg, { hermes: getHermes(), ...(execFileImpl ? { execFileImpl } : {}) });
+    sendJson(res, out.ok ? 200 : out.code === "disabled" || out.code === "no-hermes" ? 409 : 502, out);
     return true;
   }
   if (pathname === "/api/agent/enable" && req.method === "POST") {
