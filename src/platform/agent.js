@@ -88,4 +88,19 @@ export async function restartAgentGateway() {
   }
 }
 
+/**
+ * Pin the agent session's model (POST /api/sessions/{id}/model through the
+ * bridge). Resolves {ok, runtime} or {ok:false, code, error}. Never throws.
+ */
+export async function pinSessionModel(session, { model, provider } = {}) {
+  try {
+    const r = await fetch(`/api/agent/sessions/${encodeURIComponent(session)}/model`, {
+      method: "POST", headers: headers(true), body: JSON.stringify({ model, ...(provider ? { provider } : {}) }) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? { ok: true, runtime: j.runtime || null } : { ok: false, code: j.code || "error", error: j.error || `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, code: "error", error: e.message };
+  }
+}
+
 export const stopRun = runId => post(`/api/agent/runs/${encodeURIComponent(runId)}/stop`, {});

@@ -150,7 +150,9 @@ export async function agentStatus(cfg, { fetchImpl = fetch, timeoutMs = 1500 } =
     const f = caps.features || {};
     if (f.session_chat_streaming === false) return { ...base, version: health.version, reason: "unsupported", detail: "agent has no session chat streaming" };
     return { ...base, available: true, version: health.version, reason: "ok",
-      approvals: f.run_approval !== false, stop: f.run_stop !== false };
+      approvals: f.run_approval !== false, stop: f.run_stop !== false,
+      // Opt-in: older agents have no POST /api/sessions/{id}/model.
+      modelLock: f.session_model_lock === true };
   } catch (e) {
     return { ...base, version: health.version, reason: "unreachable", detail: e.message };
   }
@@ -186,6 +188,50 @@ export function chatRequestBody(input) {
   return { session, body };
 }
 
+const MODEL_ID_RE = /^[^\s\u0000-\u001f]{1,200}$/;
+
+/**
+ * Validate the browser's model-pin request into the agent's
+ * POST /api/sessions/{id}/model body ({model, provider?}).
+ */
+export function modelPinBody(input) {
+  if (!input || typeof input !== "object") return { error: "body must be a JSON object" };
+  const { model, provider } = input;
+  if (typeof model !== "string" || !MODEL_ID_RE.test(model)) return { error: "invalid model id" };
+  const body = { model };
+  if (provider != null && provider !== "") {
+    if (typeof provider !== "string" || provider.length > 80 || !MODEL_ID_RE.test(provider)) return { error: "invalid provider id" };
+    body.provider = provider;
+  }
+  return { body };
+}
+
+/**
+ * Pin a session's model on the agent (creating the session first if needed).
+ * Resolves {ok, status, runtime} or {ok:false, status, code, error}; `code` is
+ * "unsupported" for an agent without the endpoint (404/405).
+ */
+export async function pinSessionModel(cfg, sessionId, body, { fetchImpl = fetch } = {}) {
+  const unreachable = e => ({ ok: false, status: 502, code: "agent_unreachable", error: `agent API unreachable: ${e.message}` });
+  let ensured;
+  try { ensured = await ensureSession(cfg, sessionId, { fetchImpl }); }
+  catch (e) { return unreachable(e); }
+  if (!ensured.ok) return { ok: false, status: 502, code: "agent_error", error: `agent session: ${ensured.error}` };
+  let r;
+  try {
+    r = await fetchImpl(`${cfg.url}/api/sessions/${encodeURIComponent(sessionId)}/model`, {
+      method: "POST", headers: { ...authHeaders(cfg), "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch (e) { return unreachable(e); }
+  const text = await r.text().catch(() => "");
+  let j = {};
+  try { j = JSON.parse(text) || {}; } catch {}
+  if (r.ok) return { ok: true, status: 200, runtime: j.runtime || null };
+  const err = typeof j.error === "object" && j.error ? j.error : { message: j.error };
+  const code = r.status === 404 || r.status === 405 ? "unsupported" : err.code || j.code || "agent_error";
+  const error = String(err.message || text || `HTTP ${r.status}`).slice(0, 500);
+  return { ok: false, status: r.status >= 500 ? 502 : r.status, code, error };
+}
+
 const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
 
 /**
@@ -196,6 +242,7 @@ const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type":
  *   POST /api/agent/runs/:id/approval    {choice, request_id?}
  *   POST /api/agent/enable               generate API_SERVER_KEY into the agent's .env
  *   POST /api/agent/restart              restart the agent gateway via its CLI
+ *   POST /api/agent/sessions/:id/model   {model, provider?} -> pin the session's model
  * Status also carries `restartable` (the bridge found a CLI to restart with).
  */
 export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody,
@@ -254,6 +301,19 @@ export async function handleAgentRoute(req, res, pathname, { getConfig = () => a
       }
     } catch {}
     res.end();
+    return true;
+  }
+  const pm = pathname.match(/^\/api\/agent\/sessions\/([^/]+)\/model$/);
+  if (pm && req.method === "POST") {
+    let sessionId = "";
+    try { sessionId = decodeURIComponent(pm[1]); } catch {}
+    if (!SESSION_ID_RE.test(sessionId)) { sendJson(res, 400, { error: "invalid session id", code: "bad_request" }); return true; }
+    let parsed;
+    try { parsed = modelPinBody(JSON.parse(await readBody(req) || "{}")); } catch { parsed = { error: "invalid JSON" }; }
+    if (parsed.error) { sendJson(res, 400, { error: parsed.error, code: "bad_request" }); return true; }
+    if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
+    const { status, ...out } = await pinSessionModel(cfg, sessionId, parsed.body, { fetchImpl });
+    sendJson(res, status, out);
     return true;
   }
   const m = pathname.match(/^\/api\/agent\/runs\/([^/]+)\/(stop|approval)$/);
