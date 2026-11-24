@@ -528,6 +528,20 @@ webview { flex: 1; background: white; }
 .picker-foot button { border: 1px solid var(--border2); background: var(--bg2); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .picker-foot .picker-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
 .picker-foot .picker-ok:disabled { opacity: .5; cursor: default; }
+.picker-foot button:disabled { opacity: .5; cursor: default; }
+
+/* agent session resume picker (src/panels/AgentSessionPicker.jsx) */
+.modal.agent-sessions { width: min(620px, 94vw); display: flex; flex-direction: column; gap: 8px; }
+.agent-sessions-list { height: 360px; overflow: auto; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg2); }
+.agent-session-row { display: flex; width: 100%; gap: 10px; align-items: center; text-align: left; background: none; border: 0;
+  border-bottom: 1px solid var(--border2); color: var(--text); padding: 7px 10px; cursor: pointer; font: inherit; }
+.agent-session-row:hover { background: var(--panel); }
+.agent-session-row.cur { box-shadow: inset 3px 0 0 var(--accent); }
+.agent-session-row:disabled { cursor: default; opacity: .7; }
+.as-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.as-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-meta { font-size: 10px; color: var(--dim); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-side { display: flex; flex-direction: column; align-items: flex-end; font-size: 10px; color: var(--dim); gap: 2px; }
 
 /* env-var prompt modal */
 .modal.env-modal { min-width: 480px; max-width: 620px; }

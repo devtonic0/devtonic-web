@@ -103,4 +103,28 @@ export async function pinSessionModel(session, { model, provider } = {}) {
   }
 }
 
+async function getJson(path) {
+  try {
+    const r = await fetch(path, { headers: headers() });
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? { ok: true, ...j } : { ok: false, code: j.code || "error", error: j.error || `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, code: "error", error: e.message };
+  }
+}
+
+/**
+ * The agent's sessions, most recently active first. Resolves
+ * {ok, sessions, hasMore} or {ok:false, code, error}. Never throws.
+ */
+export const listAgentSessions = ({ limit = 50, offset = 0 } = {}) =>
+  getJson(`/api/agent/sessions?limit=${limit}&offset=${offset}`);
+
+/**
+ * The latest conversational messages of an agent session, oldest first.
+ * Resolves {ok, messages: [{role, text, timestamp}]} or {ok:false, code, error}.
+ */
+export const agentSessionMessages = (session, { limit = 200 } = {}) =>
+  getJson(`/api/agent/sessions/${encodeURIComponent(session)}/messages?limit=${limit}`);
+
 export const stopRun = runId => post(`/api/agent/runs/${encodeURIComponent(runId)}/stop`, {});

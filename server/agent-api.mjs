@@ -232,6 +232,96 @@ export async function pinSessionModel(cfg, sessionId, body, { fetchImpl = fetch 
   return { ok: false, status: r.status >= 500 ? 502 : r.status, code, error };
 }
 
+const clampInt = (v, def, min, max) => {
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : def;
+};
+const str = (v, n = 200) => (typeof v === "string" ? v.slice(0, n) : "");
+const num = v => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * Reduce one agent session row (GET /api/sessions) to what the session
+ * picker shows. Rows whose id can't be used with the chat route are dropped
+ * (returns null); child sessions and hidden rows are left out by the agent.
+ */
+export function sessionSummary(s) {
+  if (!s || typeof s !== "object" || typeof s.id !== "string" || !SESSION_ID_RE.test(s.id)) return null;
+  return {
+    id: s.id,
+    title: str(s.title),
+    preview: str(s.preview, 160),
+    source: str(s.source, 40),
+    model: str(s.model),
+    startedAt: num(s.started_at),
+    lastActive: num(s.last_active) ?? num(s.started_at),
+    messageCount: num(s.message_count) ?? 0,
+    pinned: !!s.pinned,
+    archived: !!s.archived,
+  };
+}
+
+/** Flatten an agent message's content (string or OpenAI-style parts) to text. */
+export function messageText(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map(p => (typeof p === "string" ? p : p && typeof p.text === "string" ? p.text : "")).filter(Boolean).join("\n");
+  }
+  return "";
+}
+
+/**
+ * Keep only the conversational turns of a transcript (GET
+ * /api/sessions/{id}/messages): user messages and assistant replies with
+ * text. Tool calls/results and system rows are dropped.
+ */
+export function transcriptMessages(rows) {
+  const out = [];
+  for (const m of Array.isArray(rows) ? rows : []) {
+    if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    const text = messageText(m.content).trim();
+    if (!text) continue;
+    out.push({ role: m.role, text, timestamp: num(m.timestamp) });
+  }
+  return out;
+}
+
+async function agentGetJson(cfg, pathAndQuery, { fetchImpl = fetch } = {}) {
+  let r;
+  try { r = await fetchImpl(`${cfg.url}${pathAndQuery}`, { headers: authHeaders(cfg) }); }
+  catch (e) { return { ok: false, status: 502, code: "agent_unreachable", error: `agent API unreachable: ${e.message}` }; }
+  if (!r.ok) {
+    const error = String(await errorText(r)).slice(0, 500);
+    const code = r.status === 404 ? "not_found" : r.status === 401 || r.status === 403 ? "unauthorized" : "agent_error";
+    return { ok: false, status: r.status >= 500 ? 502 : r.status, code, error };
+  }
+  const json = await r.json().catch(() => null);
+  if (!json || typeof json !== "object") return { ok: false, status: 502, code: "agent_error", error: "agent returned invalid JSON" };
+  return { ok: true, json };
+}
+
+/**
+ * List the agent's sessions, most recently active first.
+ * Resolves {ok, status, sessions, hasMore, offset} or {ok:false, status, code, error}.
+ */
+export async function listAgentSessions(cfg, { limit = 50, offset = 0 } = {}, { fetchImpl = fetch } = {}) {
+  const lim = clampInt(limit, 50, 1, 200), off = clampInt(offset, 0, 0, 1_000_000);
+  const r = await agentGetJson(cfg, `/api/sessions?limit=${lim}&offset=${off}`, { fetchImpl });
+  if (!r.ok) return r;
+  const rows = Array.isArray(r.json.data) ? r.json.data : [];
+  return { ok: true, status: 200, sessions: rows.map(sessionSummary).filter(Boolean), hasMore: !!r.json.has_more, offset: off };
+}
+
+/**
+ * The latest `limit` conversational messages of a session, oldest first.
+ * Resolves {ok, status, session, messages} or {ok:false, status, code, error}.
+ */
+export async function agentSessionMessages(cfg, sessionId, { limit = 200 } = {}, { fetchImpl = fetch } = {}) {
+  const lim = clampInt(limit, 200, 1, 500);
+  const r = await agentGetJson(cfg, `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${lim}&order=latest`, { fetchImpl });
+  if (!r.ok) return r;
+  return { ok: true, status: 200, session: sessionId, messages: transcriptMessages(r.json.data) };
+}
+
 const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
 
 /**
@@ -243,6 +333,8 @@ const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type":
  *   POST /api/agent/enable               generate API_SERVER_KEY into the agent's .env
  *   POST /api/agent/restart              restart the agent gateway via its CLI
  *   POST /api/agent/sessions/:id/model   {model, provider?} -> pin the session's model
+ *   GET  /api/agent/sessions             ?limit&offset -> {sessions, hasMore} (recent first)
+ *   GET  /api/agent/sessions/:id/messages ?limit -> {messages: [{role, text, timestamp}]}
  * Status also carries `restartable` (the bridge found a CLI to restart with).
  */
 export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody,
@@ -301,6 +393,24 @@ export async function handleAgentRoute(req, res, pathname, { getConfig = () => a
       }
     } catch {}
     res.end();
+    return true;
+  }
+  if (pathname === "/api/agent/sessions" && req.method === "GET") {
+    if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
+    const q = new URL(req.url, "http://x").searchParams;
+    const { status, ...out } = await listAgentSessions(cfg, { limit: q.get("limit"), offset: q.get("offset") }, { fetchImpl });
+    sendJson(res, status, out);
+    return true;
+  }
+  const mm = pathname.match(/^\/api\/agent\/sessions\/([^/]+)\/messages$/);
+  if (mm && req.method === "GET") {
+    let sessionId = "";
+    try { sessionId = decodeURIComponent(mm[1]); } catch {}
+    if (!SESSION_ID_RE.test(sessionId)) { sendJson(res, 400, { error: "invalid session id", code: "bad_request" }); return true; }
+    if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
+    const q = new URL(req.url, "http://x").searchParams;
+    const { status, ...out } = await agentSessionMessages(cfg, sessionId, { limit: q.get("limit") }, { fetchImpl });
+    sendJson(res, status, out);
     return true;
   }
   const pm = pathname.match(/^\/api\/agent\/sessions\/([^/]+)\/model$/);

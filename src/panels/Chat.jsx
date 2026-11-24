@@ -7,7 +7,9 @@ import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
-import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway, pinSessionModel } from "../platform/agent.js";
+import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway, pinSessionModel, agentSessionMessages } from "../platform/agent.js";
+import { transcriptToChat, withSession } from "../platform/agent-sessions.js";
+import AgentSessionPicker from "./AgentSessionPicker.jsx";
 import { createModelPinner } from "../platform/model-pin.js";
 import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, waitForAgent } from "../platform/agent-stream.js";
 import { copyText } from "../platform/web.js";
@@ -451,6 +453,34 @@ export default function Chat() {
   const [transport, setTransport] = useState(null);
   useEffect(() => { agentStatus().then(setTransport); }, []);
   const apiRef = useRef(null); // { ctl: AbortController, runId } during an API turn
+  const [resumeOpen, setResumeOpen] = useState(false);
+
+  // Resume an agent session: load its transcript from the agent, make it the
+  // active session for this project, and keep chatting in it (the agent holds
+  // the history, so API turns continue where it left off).
+  async function resumeAgentSession(s) {
+    const LIMIT = 200;
+    const r = await agentSessionMessages(s.id, { limit: LIMIT });
+    if (!r.ok) {
+      setMessages(m => [...m, { who: "system", text: `couldn't load agent session ${s.id} (${r.error})` }]);
+      setResumeOpen(false);
+      return;
+    }
+    const msgs = transcriptToChat(s.id, r.messages, { truncated: (s.messageCount ?? 0) > LIMIT });
+    const next = withSession(sessions, s.id);
+    modelPinner.forget(s.id); // the session may carry its own lock; re-pin on the next turn
+    // Store the transcript in the session's history slot first: the session
+    // swap effect loads that slot when `session` changes.
+    const hist = loadSettings().chatHistory ?? {};
+    hist[chatHistoryKey(root, s.id)] = msgs;
+    saveSettings({ chatHistory: hist });
+    sessionRef.current = s.id;
+    setSessions(next);
+    setSession(s.id);
+    setProjectSessions(root, next, s.id);
+    setMessages(msgs);
+    setResumeOpen(false);
+  }
   const [liveTurn, setLiveTurn] = useState(null); // reduced SSE state during an API turn
 
   // Current model + smart-routing pick for this prompt (also surfaces the
@@ -762,7 +792,9 @@ export default function Chat() {
           className="session-select"
           value={session}
           onChange={e => {
-            if (e.target.value === "__new__") {
+            if (e.target.value === "__resume__") {
+              setResumeOpen(true);
+            } else if (e.target.value === "__new__") {
               const stamp = new Date().toISOString().slice(5, 16).replace("T", "-").replace(":", "");
               const name = `${projectRoot.split("/").pop()}-${stamp}`;
               const next = [name, ...sessions.filter(s => s !== name)];
@@ -779,6 +811,7 @@ export default function Chat() {
           {sessions.map(s => <option key={s} value={s}>{s}</option>)}
           <option disabled>──────────</option>
           <option value="__new__">＋ new session</option>
+          {transport?.available && <option value="__resume__">⟲ resume agent session…</option>}
         </select>
         {busy && <button className="tb-btn" onClick={stop}>stop</button>}
         <button
@@ -825,6 +858,10 @@ export default function Chat() {
         />
         <button className="send-btn" disabled={busy || !input.trim()} onClick={() => send()}>Send</button>
       </div>
+      {resumeOpen && (
+        <AgentSessionPicker local={sessions} current={session}
+          onPick={resumeAgentSession} onClose={() => setResumeOpen(false)} />
+      )}
       {envPrompt && (
         <EnvPromptModal
           names={envPrompt.names}
