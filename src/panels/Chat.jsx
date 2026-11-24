@@ -7,9 +7,13 @@ import { routingStatus, setRouting, routeModel, classifyTask } from "../routing.
 import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
-import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway } from "../platform/agent.js";
+import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway, pinSessionModel } from "../platform/agent.js";
+import { createModelPinner } from "../platform/model-pin.js";
 import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, waitForAgent } from "../platform/agent-stream.js";
 import { copyText } from "../platform/web.js";
+
+// One pinner per page: remembers which model each agent session is locked to.
+const modelPinner = createModelPinner({ pin: pinSessionModel });
 
 // Real Hermes chat with live activity feed + per-turn git diffs.
 // Preferred transport: the agent's HTTP API (structured SSE events: deltas,
@@ -488,7 +492,15 @@ export default function Chat() {
   // the mission context (as ephemeral instructions) and the new message are
   // sent. Returns false when the turn never started so the caller can fall
   // back to the CLI; true once the stream ran (whatever its outcome).
-  async function sendViaApi(text, mc, chosenModel, collectMissing) {
+  async function sendViaApi(text, mc, chosenModel, collectMissing, status) {
+    // Pin the session's model on the agent when it supports it (and the pick
+    // changed); otherwise the model/provider ride on the turn itself.
+    const runtime = await modelPinner.prepare({ status, session, model: chosenModel, provider: mc.provider });
+    if (runtime.changed && chosenModel !== mc.model) {
+      setMessages(m => [...m, { who: "system", text: `📌 session model pinned to ${chosenModel}` }]);
+    } else if (runtime.error) {
+      setMessages(m => [...m, { who: "system", text: `couldn't pin the session model (${runtime.error}), sending it per turn` }]);
+    }
     const ctl = new AbortController();
     apiRef.current = { ctl, runId: null };
     let turn = initialTurn();
@@ -507,7 +519,7 @@ export default function Chat() {
     };
     try {
       await streamAgentChat({ session, message: text, instructions: await chatContext(),
-        model: chosenModel || undefined, provider: mc.provider || undefined, signal: ctl.signal, onEvent });
+        model: runtime.model, provider: runtime.provider, signal: ctl.signal, onEvent });
     } catch (e) {
       if (!streamed && !ctl.signal.aborted) {
         clearInterval(diffPoll);
@@ -571,7 +583,7 @@ export default function Chat() {
     const st = await agentStatus();
     setTransport(st);
     if (st.available) {
-      const started = await sendViaApi(text, mc, chosenModel, collectMissing);
+      const started = await sendViaApi(text, mc, chosenModel, collectMissing, st);
       if (started) return;
       setTransport(await agentStatus({ force: true }));
     }
