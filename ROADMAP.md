@@ -29,7 +29,7 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
     - [x] Restart the agent gateway from the hint (`POST /api/agent/restart` runs the CLI's gateway restart via the bridge, then waits for the API) ([#21](https://github.com/devtonic0/devtonic-web/pull/21))
   - [x] Pin the session's model with `POST /api/sessions/{id}/model` when smart routing picks a different tier, instead of passing `model` per turn (gated on the agent's `session_model_lock` capability; per-turn fallback) ([#22](https://github.com/devtonic0/devtonic-web/pull/22))
 - [x] Session list and resume from agent API (bridge `GET /api/agent/sessions[/:id/messages]`, resume picker in the chat session dropdown, transcript loaded into the chat) ([#23](https://github.com/devtonic0/devtonic-web/pull/23))
-  - [ ] Session management from the picker: rename, pin/archive, delete (`PATCH`/`DELETE /api/sessions/{id}`) and fork (`POST /api/sessions/{id}/fork`)
+  - [x] Session management from the picker: rename, pin/archive, delete (`PATCH`/`DELETE /api/sessions/{id}`) and fork (`POST /api/sessions/{id}/fork`) (PR_LINK)
   - [ ] Load older messages of a resumed session on scroll-up (offset paging) instead of only the latest 200
 - [x] First-run onboarding: detect missing agent and show install instructions (wizard with per-platform steps + broken `DEVTONIC_HERMES` detection, persistent banner after skip) ([#18](https://github.com/devtonic0/devtonic-web/pull/18))
 

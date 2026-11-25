@@ -8,7 +8,7 @@ import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
 import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway, pinSessionModel, agentSessionMessages } from "../platform/agent.js";
-import { transcriptToChat, withSession } from "../platform/agent-sessions.js";
+import { transcriptToChat, withSession, afterSessionDelete } from "../platform/agent-sessions.js";
 import AgentSessionPicker from "./AgentSessionPicker.jsx";
 import { createModelPinner } from "../platform/model-pin.js";
 import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, waitForAgent } from "../platform/agent-stream.js";
@@ -481,6 +481,26 @@ export default function Chat() {
     setMessages(msgs);
     setResumeOpen(false);
   }
+
+  // An agent session was deleted from the picker: drop it from this project's
+  // list and its stored history; if it was active, switch to the next one.
+  function agentSessionDeleted(id) {
+    const out = afterSessionDelete(sessions, id, session, defaultSessionName(root));
+    const hist = loadSettings().chatHistory ?? {};
+    if (chatHistoryKey(root, id) in hist) {
+      delete hist[chatHistoryKey(root, id)];
+      saveSettings({ chatHistory: hist });
+    }
+    modelPinner.forget(id);
+    if (!out.changed) return;
+    setSessions(out.sessions);
+    setProjectSessions(root, out.sessions, out.active);
+    if (out.active !== session) {
+      sessionRef.current = out.active;
+      setSession(out.active);
+      setMessages(historyForProject(root, out.active) ?? [GREETING]);
+    }
+  }
   const [liveTurn, setLiveTurn] = useState(null); // reduced SSE state during an API turn
 
   // Current model + smart-routing pick for this prompt (also surfaces the
@@ -860,7 +880,7 @@ export default function Chat() {
       </div>
       {resumeOpen && (
         <AgentSessionPicker local={sessions} current={session}
-          onPick={resumeAgentSession} onClose={() => setResumeOpen(false)} />
+          onPick={resumeAgentSession} onDeleted={agentSessionDeleted} onClose={() => setResumeOpen(false)} />
       )}
       {envPrompt && (
         <EnvPromptModal

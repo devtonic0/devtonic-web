@@ -29,6 +29,8 @@ The bridge looks for the agent CLI in this order: the `DEVTONIC_HERMES` env var 
 
 **Resume agent sessions:** with the API available, the session dropdown in the chat header has **⟲ resume agent session…**. It lists the agent's sessions (from any surface: CLI, gateway, desktop, API), most recent first, with pinned ones on top, a filter box, an archived toggle and paging. Picking one loads its conversation (the latest 200 user/assistant messages; tool steps are left out), adds it to this project's session list, and makes it active, so the next turn continues that session on the agent.
 
+Each row also has actions (shown on hover): **✎ rename** (Enter saves; an empty title clears it), **📌 pin/unpin**, **🗄 archive/unarchive**, **⑂ fork** (the agent copies the conversation into a new session and marks the original as branched; the chat switches to the fork) and **🗑 delete** (asks to confirm, then deletes it on the agent and drops it from this project's session list; if it was the active session, the chat switches to the next one).
+
 When the badge says `cli` because no API key is configured, a hint bar under the chat header offers **enable agent API**: the bridge generates a random 64-hex-char `API_SERVER_KEY` into the agent's `.env` (`$HERMES_HOME/.env`, mode 0600; it never overwrites an existing key and never sends the key to the browser). Then click **restart gateway** (the bridge runs `hermes gateway restart` with the CLI it resolved and waits for the API to come up), or copy the command from the hint and click **re-check**. The hint also explains a rejected key or an unreachable gateway, and can be hidden for the session.
 
 ### Development
