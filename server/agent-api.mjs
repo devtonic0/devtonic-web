@@ -322,6 +322,99 @@ export async function agentSessionMessages(cfg, sessionId, { limit = 200 } = {},
   return { ok: true, status: 200, session: sessionId, messages: transcriptMessages(r.json.data) };
 }
 
+const TITLE_MAX = 200;
+const validTitle = t => typeof t === "string" && t.length <= TITLE_MAX && !/[\u0000-\u001f]/.test(t);
+
+/**
+ * Validate the browser's session update into the agent's PATCH
+ * /api/sessions/{id} body. Only client-safe metadata is forwarded:
+ * `title` (string, "" or null clears it), `pinned`, `archived` (booleans).
+ */
+export function sessionUpdateBody(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "body must be a JSON object" };
+  const body = {};
+  if ("title" in input) {
+    if (input.title !== null && !validTitle(input.title)) return { error: `title must be a single-line string of at most ${TITLE_MAX} chars` };
+    body.title = input.title === null ? "" : input.title.trim();
+  }
+  for (const flag of ["pinned", "archived"]) {
+    if (!(flag in input)) continue;
+    if (typeof input[flag] !== "boolean") return { error: `${flag} must be a boolean` };
+    body[flag] = input[flag];
+  }
+  const unknown = Object.keys(input).filter(k => !["title", "pinned", "archived"].includes(k));
+  if (unknown.length) return { error: `unsupported fields: ${unknown.join(", ")}` };
+  if (!Object.keys(body).length) return { error: "nothing to update" };
+  return { body };
+}
+
+/** Validate a fork request ({id?, title?}) into the agent's POST /api/sessions/{id}/fork body. */
+export function forkBody(input) {
+  if (input == null) input = {};
+  if (typeof input !== "object" || Array.isArray(input)) return { error: "body must be a JSON object" };
+  const body = {};
+  if (input.id != null && input.id !== "") {
+    if (typeof input.id !== "string" || !SESSION_ID_RE.test(input.id)) return { error: "invalid fork session id" };
+    body.id = input.id;
+  }
+  if (input.title != null && input.title !== "") {
+    if (!validTitle(input.title)) return { error: `title must be a single-line string of at most ${TITLE_MAX} chars` };
+    body.title = input.title.trim();
+  }
+  return { body };
+}
+
+/** Send a JSON request to the agent and map errors the same way as agentGetJson. */
+async function agentSendJson(cfg, method, pathName, body, { fetchImpl = fetch } = {}) {
+  let r;
+  try {
+    r = await fetchImpl(`${cfg.url}${pathName}`, { method,
+      headers: { ...authHeaders(cfg), ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}) });
+  } catch (e) { return { ok: false, status: 502, code: "agent_unreachable", error: `agent API unreachable: ${e.message}` }; }
+  const text = await r.text().catch(() => "");
+  let j = null;
+  try { j = JSON.parse(text); } catch {}
+  if (!r.ok) {
+    const err = j && typeof j.error === "object" && j.error ? j.error : { message: j?.error };
+    const code = r.status === 404 ? "not_found" : r.status === 401 || r.status === 403 ? "unauthorized"
+      : r.status === 405 ? "unsupported" : err.code || j?.code || "agent_error";
+    return { ok: false, status: r.status >= 500 ? 502 : r.status, code, error: String(err.message || text || `HTTP ${r.status}`).slice(0, 500) };
+  }
+  if (!j || typeof j !== "object") return { ok: false, status: 502, code: "agent_error", error: "agent returned invalid JSON" };
+  return { ok: true, json: j };
+}
+
+/**
+ * Rename / pin / archive an agent session (PATCH /api/sessions/{id}).
+ * Resolves {ok, status, session} (picker summary) or {ok:false, status, code, error}.
+ */
+export async function updateAgentSession(cfg, sessionId, body, { fetchImpl = fetch } = {}) {
+  const r = await agentSendJson(cfg, "PATCH", `/api/sessions/${encodeURIComponent(sessionId)}`, body, { fetchImpl });
+  if (!r.ok) return r;
+  return { ok: true, status: 200, session: sessionSummary(r.json.session) };
+}
+
+/** Delete an agent session (DELETE /api/sessions/{id}). Resolves {ok, status, id, deleted}. */
+export async function deleteAgentSession(cfg, sessionId, { fetchImpl = fetch } = {}) {
+  const r = await agentSendJson(cfg, "DELETE", `/api/sessions/${encodeURIComponent(sessionId)}`, null, { fetchImpl });
+  if (!r.ok) return r;
+  return { ok: true, status: 200, id: sessionId, deleted: r.json.deleted !== false };
+}
+
+/**
+ * Fork (branch) an agent session (POST /api/sessions/{id}/fork): the agent
+ * copies the transcript into a new session and ends the source as "branched".
+ * Resolves {ok, status, session, parent} or {ok:false, status, code, error}.
+ */
+export async function forkAgentSession(cfg, sessionId, body = {}, { fetchImpl = fetch } = {}) {
+  const r = await agentSendJson(cfg, "POST", `/api/sessions/${encodeURIComponent(sessionId)}/fork`, body, { fetchImpl });
+  if (!r.ok) return r;
+  const session = sessionSummary(r.json.session);
+  if (!session) return { ok: false, status: 502, code: "agent_error", error: "agent returned an unusable fork id" };
+  return { ok: true, status: 200, session, parent: sessionId };
+}
+
 const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
 
 /**
@@ -335,6 +428,9 @@ const sendJson = (res, status, obj) => { res.writeHead(status, { "content-type":
  *   POST /api/agent/sessions/:id/model   {model, provider?} -> pin the session's model
  *   GET  /api/agent/sessions             ?limit&offset -> {sessions, hasMore} (recent first)
  *   GET  /api/agent/sessions/:id/messages ?limit -> {messages: [{role, text, timestamp}]}
+ *   PATCH  /api/agent/sessions/:id      {title?, pinned?, archived?} -> {session}
+ *   DELETE /api/agent/sessions/:id      -> {id, deleted}
+ *   POST   /api/agent/sessions/:id/fork {id?, title?} -> {session, parent}
  * Status also carries `restartable` (the bridge found a CLI to restart with).
  */
 export async function handleAgentRoute(req, res, pathname, { getConfig = () => agentConfig(), fetchImpl = fetch, readBody,
@@ -410,6 +506,26 @@ export async function handleAgentRoute(req, res, pathname, { getConfig = () => a
     if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
     const q = new URL(req.url, "http://x").searchParams;
     const { status, ...out } = await agentSessionMessages(cfg, sessionId, { limit: q.get("limit") }, { fetchImpl });
+    sendJson(res, status, out);
+    return true;
+  }
+  const sm = pathname.match(/^\/api\/agent\/sessions\/([^/]+)(\/fork)?$/);
+  if (sm && (sm[2] ? req.method === "POST" : req.method === "PATCH" || req.method === "DELETE")) {
+    let sessionId = "";
+    try { sessionId = decodeURIComponent(sm[1]); } catch {}
+    if (!SESSION_ID_RE.test(sessionId)) { sendJson(res, 400, { error: "invalid session id", code: "bad_request" }); return true; }
+    let parsed = { body: null };
+    if (req.method !== "DELETE") {
+      try {
+        const raw = await readBody(req);
+        parsed = (sm[2] ? forkBody : sessionUpdateBody)(raw ? JSON.parse(raw) : sm[2] ? {} : null);
+      } catch { parsed = { error: "invalid JSON" }; }
+    }
+    if (parsed.error) { sendJson(res, 400, { error: parsed.error, code: "bad_request" }); return true; }
+    if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
+    const { status, ...out } = sm[2] ? await forkAgentSession(cfg, sessionId, parsed.body, { fetchImpl })
+      : req.method === "DELETE" ? await deleteAgentSession(cfg, sessionId, { fetchImpl })
+      : await updateAgentSession(cfg, sessionId, parsed.body, { fetchImpl });
     sendJson(res, status, out);
     return true;
   }

@@ -534,11 +534,23 @@ webview { flex: 1; background: white; }
 .modal.agent-sessions { width: min(620px, 94vw); display: flex; flex-direction: column; gap: 8px; }
 .agent-sessions-list { height: 360px; overflow: auto; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg2); }
 .agent-session-row { display: flex; width: 100%; gap: 10px; align-items: center; text-align: left; background: none; border: 0;
-  border-bottom: 1px solid var(--border2); color: var(--text); padding: 7px 10px; cursor: pointer; font: inherit; }
+  border-bottom: 1px solid var(--border2); color: var(--text); padding: 7px 10px; font: inherit; box-sizing: border-box; }
 .agent-session-row:hover { background: var(--panel); }
 .agent-session-row.cur { box-shadow: inset 3px 0 0 var(--accent); }
-.agent-session-row:disabled { cursor: default; opacity: .7; }
-.as-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.as-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; background: none; border: 0; padding: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.as-main:disabled { cursor: default; opacity: .7; }
+.as-rename { flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--accent); background: var(--bg); color: var(--text); }
+.as-actions { display: flex; gap: 2px; opacity: .35; transition: opacity .1s; }
+.agent-session-row:hover .as-actions, .agent-session-row:focus-within .as-actions { opacity: 1; }
+.as-actions button { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 2px 5px; }
+.as-actions button:hover:not(:disabled) { border-color: var(--border2); background: var(--bg2); }
+.as-actions button.on { border-color: var(--accent); }
+.as-actions button:disabled { opacity: .5; cursor: default; }
+.as-actions .as-danger { color: var(--red); border-color: var(--red); }
+.as-notice { padding: 0 2px; }
 .as-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-meta { font-size: 10px; color: var(--dim); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-side { display: flex; flex-direction: column; align-items: flex-end; font-size: 10px; color: var(--dim); gap: 2px; }

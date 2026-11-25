@@ -127,4 +127,24 @@ export const listAgentSessions = ({ limit = 50, offset = 0 } = {}) =>
 export const agentSessionMessages = (session, { limit = 200 } = {}) =>
   getJson(`/api/agent/sessions/${encodeURIComponent(session)}/messages?limit=${limit}`);
 
+async function sendJson(method, path, body) {
+  try {
+    const r = await fetch(path, { method, headers: headers(body !== undefined),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? { ok: true, ...j } : { ok: false, code: j.code || "error", error: j.error || `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, code: "error", error: e.message };
+  }
+}
+const sessionPath = id => `/api/agent/sessions/${encodeURIComponent(id)}`;
+
+/** Rename / pin / archive. `patch` = {title?, pinned?, archived?}. Resolves {ok, session}. Never throws. */
+export const updateAgentSession = (session, patch) => sendJson("PATCH", sessionPath(session), patch);
+/** Delete the agent session. Resolves {ok, id, deleted}. Never throws. */
+export const deleteAgentSession = session => sendJson("DELETE", sessionPath(session));
+/** Fork the agent session into a new one. Resolves {ok, session, parent}. Never throws. */
+export const forkAgentSession = (session, { id, title } = {}) =>
+  sendJson("POST", `${sessionPath(session)}/fork`, { ...(id ? { id } : {}), ...(title ? { title } : {}) });
+
 export const stopRun = runId => post(`/api/agent/runs/${encodeURIComponent(runId)}/stop`, {});
