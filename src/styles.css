@@ -1027,6 +1027,10 @@ webview { flex: 1; background: white; }
   font-size: 9px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--warn); opacity: .8; margin-left: 2px;
 }
+.chat-older-btn {
+  background: none; border: none; color: var(--dim); font: inherit; cursor: pointer; padding: 0;
+}
+.chat-older-btn:hover { color: var(--text); }
 
 /* --- notion sync panel --- */
 .notion-panel { padding: 14px 16px; overflow-y: auto; }

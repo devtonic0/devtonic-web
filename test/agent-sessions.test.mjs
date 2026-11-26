@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { sessionSummary, messageText, transcriptMessages, listAgentSessions, agentSessionMessages } from "../server/agent-api.mjs";
-import { relativeAge, sessionLabel, filterSessions, transcriptToChat, withSession } from "../src/platform/agent-sessions.js";
+import { relativeAge, sessionLabel, filterSessions, transcriptToChat, withSession, olderCursor, prependOlder } from "../src/platform/agent-sessions.js";
 
 const KEY = "sessions-agent-key";
 
@@ -67,11 +67,33 @@ test("picker helpers: label, age, filtering and ordering", () => {
 });
 
 test("transcriptToChat maps roles and notes the source", () => {
-  const out = transcriptToChat("s1", [{ role: "user", text: "q" }, { role: "assistant", text: "a" }, { role: "tool", text: "x" }], { truncated: true });
+  const out = transcriptToChat("s1", [{ role: "user", text: "q" }, { role: "assistant", text: "a" }, { role: "tool", text: "x" }], { hasMore: true, nextOffset: 7, oldestId: 40 });
   assert.equal(out[0].who, "system");
-  assert.match(out[0].text, /s1.*2 messages.*latest only/);
+  assert.match(out[0].text, /s1.*2 messages.*scroll up for older/);
+  assert.deepEqual(out[0].resume, { session: "s1", nextOffset: 7, hasMore: true, loaded: 2, beforeId: 40 });
   assert.deepEqual(out.slice(1), [{ who: "user", text: "q" }, { who: "hermes", text: "a" }]);
   assert.match(transcriptToChat("s2", [])[0].text, /no messages yet/);
+  assert.equal(olderCursor(transcriptToChat("s3", [{ role: "user", text: "q" }])), null, "no cursor without hasMore");
+});
+
+test("prependOlder inserts the older page after the note and advances the cursor", () => {
+  const chat = transcriptToChat("s", [{ role: "user", text: "new q", id: 50 }, { role: "assistant", text: "new a", id: 51 }],
+    { hasMore: true, nextOffset: 2, oldestId: 50 });
+  const page = { messages: [{ role: "user", text: "old q", id: 30 }, { role: "assistant", text: "old a", id: 31 },
+    { role: "user", text: "dup (shifted offset)", id: 50 }], nextOffset: 4, hasMore: true, oldestId: 30 };
+  const next = prependOlder(chat, page);
+  assert.deepEqual(next.slice(1).map(m => m.text), ["old q", "old a", "new q", "new a"], "already-shown ids are dropped");
+  assert.deepEqual(olderCursor(next), { session: "s", nextOffset: 4, hasMore: true, loaded: 4, beforeId: 30 });
+  assert.match(next[0].text, /4 messages.*scroll up/);
+  const last = prependOlder(next, { messages: [{ role: "user", text: "first", id: 1 }], nextOffset: 5, hasMore: false, oldestId: 1 });
+  assert.equal(olderCursor(last), null, "cursor cleared on the last page");
+  assert.equal(last[0].resume, undefined);
+  assert.deepEqual(last.slice(1, 3).map(m => m.text), ["first", "old q"]);
+  // A page that doesn't advance the offset ends paging (no infinite loop).
+  assert.equal(olderCursor(prependOlder(chat, { messages: [], nextOffset: 2, hasMore: true })), null);
+  // No cursor: unchanged.
+  const plain = [{ who: "hermes", text: "hi" }];
+  assert.equal(prependOlder(plain, page), plain);
 });
 
 function fakeAgent() {
@@ -95,6 +117,13 @@ function fakeAgent() {
     if (m) {
       const id = decodeURIComponent(m[1]);
       if (id === "missing") return json(404, { error: { message: "Session not found: missing", code: "session_not_found" } });
+      if (id === "long") {
+        // 10 rows (ids 1..10), paged back from the newest like order=latest.
+        const all = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, role: i % 2 ? "assistant" : "user", content: `m${i + 1}` }));
+        const limit = Number(u.searchParams.get("limit")), offset = Number(u.searchParams.get("offset") || 0);
+        const page = all.slice().reverse().slice(offset, offset + limit).reverse();
+        return json(200, { object: "list", session_id: id, data: page, pagination: { limit, offset, order: "latest", returned: page.length } });
+      }
       return json(200, { object: "list", session_id: id, data: [
         { role: "user", content: "build it" }, { role: "assistant", content: "", tool_calls: [{}] },
         { role: "tool", content: "ok" }, { role: "assistant", content: "done" }] });
@@ -119,8 +148,21 @@ test("listAgentSessions / agentSessionMessages against a fake agent", async () =
     assert.ok(a.calls.some(c => c.url === "/api/sessions?limit=200&offset=0"));
     const msgs = await agentSessionMessages(cfg, "recent");
     assert.deepEqual(msgs, { ok: true, status: 200, session: "recent",
-      messages: [{ role: "user", text: "build it", timestamp: null }, { role: "assistant", text: "done", timestamp: null }] });
-    assert.ok(a.calls.some(c => c.url === "/api/sessions/recent/messages?limit=200&order=latest"));
+      messages: [{ role: "user", text: "build it", timestamp: null }, { role: "assistant", text: "done", timestamp: null }],
+      offset: 0, nextOffset: 4, hasMore: false, oldestId: null });
+    assert.ok(a.calls.some(c => c.url === "/api/sessions/recent/messages?limit=200&offset=0&order=latest"));
+    // Offset paging walks back from the newest; ids ride along for dedup.
+    const p1 = await agentSessionMessages(cfg, "long", { limit: 4 });
+    assert.deepEqual(p1.messages.map(m => m.text), ["m7", "m8", "m9", "m10"]);
+    assert.deepEqual([p1.nextOffset, p1.hasMore, p1.oldestId, p1.messages[0].id], [4, true, 7, 7]);
+    const p3 = await agentSessionMessages(cfg, "long", { limit: 4, offset: 8 });
+    assert.deepEqual(p3.messages.map(m => m.text), ["m1", "m2"]);
+    assert.deepEqual([p3.nextOffset, p3.hasMore], [10, false]);
+    let chat = transcriptToChat("long", p1.messages, p1);
+    while (olderCursor(chat)) chat = prependOlder(chat, await agentSessionMessages(cfg, "long", { limit: 4, offset: olderCursor(chat).nextOffset }));
+    assert.deepEqual(chat.slice(1).map(m => m.text), Array.from({ length: 10 }, (_, i) => `m${i + 1}`), "paging assembles the full transcript in order");
+    await agentSessionMessages(cfg, "long", { limit: 4, offset: "-3" });
+    assert.ok(a.calls.some(c => c.url === "/api/sessions/long/messages?limit=4&offset=0&order=latest"), "negative offsets are clamped");
     const missing = await agentSessionMessages(cfg, "missing");
     assert.deepEqual(missing, { ok: false, status: 404, code: "not_found", error: "Session not found: missing" });
     const unauth = await listAgentSessions({ url: a.url, key: "wrong" });
@@ -149,6 +191,9 @@ test("bridge GET /api/agent/sessions[/:id/messages] proxies with the key and val
     const m = await fetch(`${base}/recent/messages`, { headers: h });
     assert.equal(m.status, 200);
     assert.equal((await m.json()).messages.length, 2);
+    const older = await (await fetch(`${base}/long/messages?limit=3&offset=3`, { headers: h })).json();
+    assert.deepEqual(older.messages.map(x => x.text), ["m5", "m6", "m7"]);
+    assert.deepEqual([older.nextOffset, older.hasMore], [6, true]);
     assert.equal((await fetch(`${base}/bad%20id/messages`, { headers: h })).status, 400);
     assert.equal((await fetch(`${base}/missing/messages`, { headers: h })).status, 404);
   } finally { bridge.kill(); a.srv.close(); }

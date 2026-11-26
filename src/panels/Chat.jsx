@@ -8,7 +8,7 @@ import EnvPromptModal from "./EnvPromptModal.jsx";
 import { detectMissingEnvVars, filterUnset, detectEnvTargets } from "../env-prompt.js";
 import { hermesPath } from "../platform/hermes.js";
 import { agentStatus, streamAgentChat, respondApproval, stopRun, enableAgentApi, restartAgentGateway, pinSessionModel, agentSessionMessages } from "../platform/agent.js";
-import { transcriptToChat, withSession, afterSessionDelete } from "../platform/agent-sessions.js";
+import { transcriptToChat, withSession, afterSessionDelete, olderCursor, prependOlder } from "../platform/agent-sessions.js";
 import AgentSessionPicker from "./AgentSessionPicker.jsx";
 import { createModelPinner } from "../platform/model-pin.js";
 import { initialTurn, reduceTurn, turnReply, transportLabel, agentApiHint, waitForAgent } from "../platform/agent-stream.js";
@@ -401,8 +401,51 @@ export default function Chat() {
   const lastUserMsgRef = useRef("");
 
   useEffect(() => {
+    // An older page was just prepended: keep the reader where they were
+    // instead of jumping to the bottom.
+    const keep = olderAnchorRef.current;
+    if (keep && scrollRef.current) {
+      olderAnchorRef.current = null;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight - keep;
+      return;
+    }
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy, liveAct]);
+
+  // Scroll-up paging for a resumed agent session: the transcript's leading
+  // note carries the cursor (see olderCursor/prependOlder in agent-sessions.js).
+  const olderAnchorRef = useRef(null); // scrollHeight - scrollTop before a prepend
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  async function loadOlder() {
+    const cur = olderCursor(messagesRef.current);
+    if (!cur || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const forSession = sessionRef.current;
+    try {
+      const r = await agentSessionMessages(cur.session, { limit: 200, offset: cur.nextOffset });
+      if (sessionRef.current !== forSession) return; // switched away meanwhile
+      if (!r.ok) {
+        setMessages(m => [...m, { who: "system", text: `couldn't load older messages (${r.error})` }]);
+        return;
+      }
+      const el = scrollRef.current;
+      if (el) olderAnchorRef.current = el.scrollHeight - el.scrollTop;
+      setMessages(m => prependOlder(m, r));
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }
+  const lastScrollTopRef = useRef(0);
+  function onChatScroll(e) {
+    // Only a user scrolling *up* near the top pages back; the smooth
+    // scroll-to-bottom after a resume starts at 0 and must not trigger it.
+    const top = e.currentTarget.scrollTop, up = top < lastScrollTopRef.current;
+    lastScrollTopRef.current = top;
+    if (up && top < 80 && olderCursor(messagesRef.current)) loadOlder();
+  }
 
   // Persist messages per (project, session) on every change. Diffs are big — strip
   // full diff text from stored history to keep the settings file tight.
@@ -466,7 +509,7 @@ export default function Chat() {
       setResumeOpen(false);
       return;
     }
-    const msgs = transcriptToChat(s.id, r.messages, { truncated: (s.messageCount ?? 0) > LIMIT });
+    const msgs = transcriptToChat(s.id, r.messages, { hasMore: r.hasMore, nextOffset: r.nextOffset, oldestId: r.oldestId });
     const next = withSession(sessions, s.id);
     modelPinner.forget(s.id); // the session may carry its own lock; re-pin on the next turn
     // Store the transcript in the session's history slot first: the session
@@ -843,7 +886,12 @@ export default function Chat() {
         >🔑 env</button>
       </div>
       <AgentApiHint status={transport} onStatus={setTransport} />
-      <div className="chat-scroll" ref={scrollRef}>
+      <div className="chat-scroll" ref={scrollRef} onScroll={onChatScroll}>
+        {olderCursor(messages) && (
+          <div className="msg-system chat-older">
+            {loadingOlder ? "loading older messages…" : <button className="chat-older-btn" onClick={loadOlder}>↑ load older messages</button>}
+          </div>
+        )}
         {messages.map((m, i) => (
           m.who === "system"
             ? <div key={i} className="msg-system">{m.text}</div>

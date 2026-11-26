@@ -121,11 +121,13 @@ export const listAgentSessions = ({ limit = 50, offset = 0 } = {}) =>
   getJson(`/api/agent/sessions?limit=${limit}&offset=${offset}`);
 
 /**
- * The latest conversational messages of an agent session, oldest first.
- * Resolves {ok, messages: [{role, text, timestamp}]} or {ok:false, code, error}.
+ * One page of an agent session's conversational messages, oldest first,
+ * paging back from the newest (`offset` = the previous page's `nextOffset`).
+ * Resolves {ok, messages: [{role, text, timestamp}], nextOffset, hasMore} or
+ * {ok:false, code, error}.
  */
-export const agentSessionMessages = (session, { limit = 200 } = {}) =>
-  getJson(`/api/agent/sessions/${encodeURIComponent(session)}/messages?limit=${limit}`);
+export const agentSessionMessages = (session, { limit = 200, offset = 0 } = {}) =>
+  getJson(`/api/agent/sessions/${encodeURIComponent(session)}/messages?limit=${limit}&offset=${offset}`);
 
 async function sendJson(method, path, body) {
   try {
