@@ -40,19 +40,53 @@ export function filterSessions(sessions, { query = "", archived = false, local =
     .sort((a, b) => (Number(!!b.pinned) - Number(!!a.pinned)) || ((b.lastActive ?? 0) - (a.lastActive ?? 0)));
 }
 
+const chatTurns = messages => (Array.isArray(messages) ? messages : [])
+  .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.text === "string" && m.text.trim())
+  .map(m => ({ who: m.role === "user" ? "user" : "hermes", text: m.text }));
+
+const resumeNote = (sessionId, count, more) => count
+  ? `⟲ resumed ${sessionId} from the agent: ${count} message${count === 1 ? "" : "s"}${more ? " (scroll up for older)" : ""}`
+  : `⟲ resumed ${sessionId} from the agent: no messages yet`;
+
 /**
  * Turn the agent transcript ({role, text}) into Chat messages. Returns the
  * chat message list (oldest first) with a leading system note saying where
- * it came from; `truncated` adds that older turns were not loaded.
+ * it came from. When `hasMore` is set the note carries the paging cursor
+ * (`resume: {session, nextOffset, hasMore, loaded}`) so the panel can load
+ * older pages on scroll-up with `prependOlder()`.
  */
-export function transcriptToChat(sessionId, messages, { truncated = false } = {}) {
-  const turns = (Array.isArray(messages) ? messages : [])
-    .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.text === "string" && m.text.trim())
-    .map(m => ({ who: m.role === "user" ? "user" : "hermes", text: m.text }));
-  const note = turns.length
-    ? `⟲ resumed ${sessionId} from the agent: ${turns.length} message${turns.length === 1 ? "" : "s"}${truncated ? " (latest only)" : ""}`
-    : `⟲ resumed ${sessionId} from the agent: no messages yet`;
-  return [{ who: "system", text: note }, ...turns];
+export function transcriptToChat(sessionId, messages, { hasMore = false, nextOffset = 0, oldestId = null } = {}) {
+  const turns = chatTurns(messages);
+  const note = { who: "system", text: resumeNote(sessionId, turns.length, hasMore) };
+  if (hasMore) note.resume = { session: sessionId, nextOffset, hasMore: true, loaded: turns.length, beforeId: oldestId ?? null };
+  return [note, ...turns];
+}
+
+/** The paging cursor of a resumed transcript, or null when nothing older is left to load. */
+export function olderCursor(chat) {
+  const r = Array.isArray(chat) ? chat[0]?.resume : null;
+  return r && r.hasMore && typeof r.session === "string" && Number.isFinite(r.nextOffset) ? r : null;
+}
+
+/**
+ * Insert an older page ({messages, nextOffset, hasMore} from
+ * `agentSessionMessages`) after the leading resume note and advance its
+ * cursor. Rows at or after the cursor's `beforeId` (already shown; turns sent
+ * since the resume shift the agent's offsets) are dropped. Returns `chat`
+ * unchanged when it has no cursor.
+ */
+export function prependOlder(chat, page) {
+  const cur = olderCursor(chat);
+  if (!cur || !page) return chat;
+  const fresh = (Array.isArray(page.messages) ? page.messages : [])
+    .filter(m => !(typeof cur.beforeId === "number" && typeof m?.id === "number" && m.id >= cur.beforeId));
+  const turns = chatTurns(fresh);
+  const loaded = (cur.loaded ?? 0) + turns.length;
+  const hasMore = !!page.hasMore && Number(page.nextOffset) > cur.nextOffset;
+  const note = { who: "system", text: resumeNote(cur.session, loaded, hasMore) };
+  const beforeId = typeof page.oldestId === "number" ? Math.min(page.oldestId, cur.beforeId ?? Infinity) : cur.beforeId ?? null;
+  if (hasMore) note.resume = { ...cur, nextOffset: Number(page.nextOffset), loaded, beforeId };
+  return [note, ...turns, ...chat.slice(1)];
 }
 
 /** Add `id` to the front of the project's session list (no duplicates). */

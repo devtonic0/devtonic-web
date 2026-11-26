@@ -280,7 +280,9 @@ export function transcriptMessages(rows) {
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
     const text = messageText(m.content).trim();
     if (!text) continue;
-    out.push({ role: m.role, text, timestamp: num(m.timestamp) });
+    const row = { role: m.role, text, timestamp: num(m.timestamp) };
+    if (num(m.id) !== null) row.id = m.id;
+    out.push(row);
   }
   return out;
 }
@@ -312,14 +314,23 @@ export async function listAgentSessions(cfg, { limit = 50, offset = 0 } = {}, { 
 }
 
 /**
- * The latest `limit` conversational messages of a session, oldest first.
- * Resolves {ok, status, session, messages} or {ok:false, status, code, error}.
+ * One page of a session's conversational messages, oldest first, paging back
+ * from the newest: `offset` skips that many of the newest raw rows (tool rows
+ * included), so the next older page starts at `nextOffset`.
+ * Resolves {ok, status, session, messages, offset, nextOffset, hasMore, oldestId}
+ * or {ok:false, status, code, error}. `oldestId` is the smallest raw row id in
+ * the page (null when the agent sends no ids): turns sent after a resume shift
+ * offsets, so the client drops already-loaded rows by id.
  */
-export async function agentSessionMessages(cfg, sessionId, { limit = 200 } = {}, { fetchImpl = fetch } = {}) {
-  const lim = clampInt(limit, 200, 1, 500);
-  const r = await agentGetJson(cfg, `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${lim}&order=latest`, { fetchImpl });
+export async function agentSessionMessages(cfg, sessionId, { limit = 200, offset = 0 } = {}, { fetchImpl = fetch } = {}) {
+  const lim = clampInt(limit, 200, 1, 500), off = clampInt(offset, 0, 0, 10_000_000);
+  const r = await agentGetJson(cfg, `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${lim}&offset=${off}&order=latest`, { fetchImpl });
   if (!r.ok) return r;
-  return { ok: true, status: 200, session: sessionId, messages: transcriptMessages(r.json.data) };
+  const rows = Array.isArray(r.json.data) ? r.json.data : [];
+  const returned = typeof r.json.pagination?.returned === "number" ? r.json.pagination.returned : rows.length;
+  const ids = rows.map(m => num(m?.id)).filter(v => v !== null);
+  return { ok: true, status: 200, session: sessionId, messages: transcriptMessages(rows),
+    offset: off, nextOffset: off + returned, hasMore: returned >= lim, oldestId: ids.length ? Math.min(...ids) : null };
 }
 
 const TITLE_MAX = 200;
@@ -505,7 +516,7 @@ export async function handleAgentRoute(req, res, pathname, { getConfig = () => a
     if (!SESSION_ID_RE.test(sessionId)) { sendJson(res, 400, { error: "invalid session id", code: "bad_request" }); return true; }
     if (cfg.disabled) { sendJson(res, 503, { error: "agent API disabled", code: "agent_unreachable" }); return true; }
     const q = new URL(req.url, "http://x").searchParams;
-    const { status, ...out } = await agentSessionMessages(cfg, sessionId, { limit: q.get("limit") }, { fetchImpl });
+    const { status, ...out } = await agentSessionMessages(cfg, sessionId, { limit: q.get("limit"), offset: q.get("offset") }, { fetchImpl });
     sendJson(res, status, out);
     return true;
   }
