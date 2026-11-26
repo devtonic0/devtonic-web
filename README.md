@@ -14,6 +14,18 @@ This is the open-source, browser-based, integration-free edition of the Devtonic
 
 ## Quick start
 
+Once the package is on npm (see [ROADMAP.md](./ROADMAP.md)):
+
+```bash
+npx devtonic-web                         # prints http://127.0.0.1:4777/?token=… and opens it
+npx devtonic-web --port 4800 --no-open
+npx devtonic-web --help
+```
+
+The npm package ships the UI prebuilt, so there's no build step, and its only runtime dependency is `ws`.
+
+From source:
+
 ```bash
 git clone https://github.com/devtonic0/devtonic-web && cd devtonic-web
 npm install
@@ -36,7 +48,7 @@ When the badge says `cli` because no API key is configured, a hint bar under the
 ### Development
 
 ```bash
-npm run serve   # bridge server on :4777 (prints the token URL)
+npm run serve   # bridge server on :4777 without opening a browser (prints the token URL)
 npm run dev     # vite on :5173 with /api proxied; open http://localhost:5173/?token=<token>
 npm run build && npm test   # unit + bridge integration tests, plus a headless-Chrome UI smoke test
 ```

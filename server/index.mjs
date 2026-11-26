@@ -140,9 +140,18 @@ wss.on("connection", ws => {
   ws.on("close", () => { for (const p of procs.values()) { try { p.kill(); } catch {} } });
 });
 
+server.on("error", e => {
+  console.error(e.code === "EADDRINUSE"
+    ? `devtonic-web: port ${PORT} is already in use; pick another with --port <n> or DEVTONIC_PORT`
+    : `devtonic-web: ${e.message}`);
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   const u = `http://${HOST}:${PORT}/?token=${TOKEN}`;
   console.log(`devtonic-web running → ${u}`);
+  if (!fs.existsSync(path.join(DIST, "index.html")))
+    console.warn("warning: dist/ is missing; run `npm run build` (the published npm package ships it prebuilt)");
   const h = resolveHermes();
   console.log(h.found ? `hermes: ${h.path} (${h.source})` : h.source === "env"
     ? `hermes: DEVTONIC_HERMES=${h.path} is not an executable file`

@@ -35,4 +35,6 @@ Items are worked top-down by the autonomous improvement loop. When an item lands
 
 ## Phase 4: Distribution
 - [ ] `npx devtonic-web` publish (npm), including build-on-install or prebuilt `dist/`
+  - [x] Make the package npm-ready: `bin/devtonic-web.mjs` CLI (`--port`, `--no-open`, `--version`, `--help`), prebuilt `dist/` via `prepack`, runtime deps trimmed to `ws`, pack-contents tests ([#26](https://github.com/devtonic0/devtonic-web/pull/26))
+  - [ ] Publish to npm (needs a maintainer `npm login` + `npm publish`; optionally a tag-triggered release workflow with an `NPM_TOKEN` secret)
 - [ ] Optional: bundle as the web frontend for the devtonic-agent standalone app
